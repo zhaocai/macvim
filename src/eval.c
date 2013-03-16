@@ -688,6 +688,9 @@ static void f_setreg __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_settabvar __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_settabwinvar __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_setwinvar __ARGS((typval_T *argvars, typval_T *rettv));
+#ifdef FEAT_CRYPT
+static void f_sha256 __ARGS((typval_T *argvars, typval_T *rettv));
+#endif /* FEAT_CRYPT */
 static void f_shellescape __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_shiftwidth __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_simplify __ARGS((typval_T *argvars, typval_T *rettv));
@@ -748,6 +751,7 @@ static void f_undotree __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_values __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_virtcol __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_visualmode __ARGS((typval_T *argvars, typval_T *rettv));
+static void f_wildmenumode __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_winbufnr __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_wincol __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_winheight __ARGS((typval_T *argvars, typval_T *rettv));
@@ -914,7 +918,9 @@ eval_clear()
     hash_clear(&compat_hashtab);
 
     free_scriptnames();
+# if defined(FEAT_CMDL_COMPL)
     free_locales();
+# endif
 
     /* global variables */
     vars_clear(&globvarht);
@@ -1558,8 +1564,6 @@ eval_expr(arg, nextcmd)
 }
 
 
-#if (defined(FEAT_USR_CMDS) && defined(FEAT_CMDL_COMPL)) \
-	|| defined(FEAT_COMPL_FUNC) || defined(PROTO)
 /*
  * Call some vimL function and return the result in "*rettv".
  * Uses argv[argc] for the function arguments.  Only Number and String
@@ -1637,6 +1641,33 @@ call_vim_function(func, argc, argv, safe, str_arg_only, rettv)
     return ret;
 }
 
+/*
+ * Call vimL function "func" and return the result as a number.
+ * Returns -1 when calling the function fails.
+ * Uses argv[argc] for the function arguments.
+ */
+    long
+call_func_retnr(func, argc, argv, safe)
+    char_u      *func;
+    int		argc;
+    char_u      **argv;
+    int		safe;		/* use the sandbox */
+{
+    typval_T	rettv;
+    long	retval;
+
+    /* All arguments are passed as strings, no conversion to number. */
+    if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+	return -1;
+
+    retval = get_tv_number_chk(&rettv, NULL);
+    clear_tv(&rettv);
+    return retval;
+}
+
+#if (defined(FEAT_USR_CMDS) && defined(FEAT_CMDL_COMPL)) \
+	|| defined(FEAT_COMPL_FUNC) || defined(PROTO)
+
 # if (defined(FEAT_USR_CMDS) && defined(FEAT_CMDL_COMPL)) || defined(PROTO)
 /*
  * Call vimL function "func" and return the result as a string.
@@ -1658,32 +1689,6 @@ call_func_retstr(func, argc, argv, safe)
 	return NULL;
 
     retval = vim_strsave(get_tv_string(&rettv));
-    clear_tv(&rettv);
-    return retval;
-}
-# endif
-
-# if defined(FEAT_COMPL_FUNC) || defined(PROTO)
-/*
- * Call vimL function "func" and return the result as a number.
- * Returns -1 when calling the function fails.
- * Uses argv[argc] for the function arguments.
- */
-    long
-call_func_retnr(func, argc, argv, safe)
-    char_u      *func;
-    int		argc;
-    char_u      **argv;
-    int		safe;		/* use the sandbox */
-{
-    typval_T	rettv;
-    long	retval;
-
-    /* All arguments are passed as strings, no conversion to number. */
-    if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
-	return -1;
-
-    retval = get_tv_number_chk(&rettv, NULL);
     clear_tv(&rettv);
     return retval;
 }
@@ -1716,7 +1721,6 @@ call_func_retlist(func, argc, argv, safe)
     return rettv.vval.v_list;
 }
 #endif
-
 
 /*
  * Save the current function call pointer, and set it to NULL.
@@ -5160,6 +5164,16 @@ eval7(arg, rettv, evaluate, want_string)
 		ret = get_func_tv(s, len, rettv, arg,
 			  curwin->w_cursor.lnum, curwin->w_cursor.lnum,
 			  &len, evaluate, NULL);
+
+		/* If evaluate is FALSE rettv->v_type was not set in
+		 * get_func_tv, but it's needed in handle_subscript() to parse
+		 * what follows. So set it here. */
+		if (rettv->v_type == VAR_UNKNOWN && !evaluate && **arg == '(')
+		{
+		    rettv->vval.v_string = vim_strsave((char_u *)"");
+		    rettv->v_type = VAR_FUNC;
+		}
+
 		/* Stop the expression evaluation when immediately
 		 * aborting on error, or when an interrupt occurred or
 		 * an exception was thrown but not caught. */
@@ -7913,7 +7927,7 @@ static struct fst
     {"garbagecollect",	0, 1, f_garbagecollect},
     {"get",		2, 3, f_get},
     {"getbufline",	2, 3, f_getbufline},
-    {"getbufvar",	2, 2, f_getbufvar},
+    {"getbufvar",	2, 3, f_getbufvar},
     {"getchar",		0, 1, f_getchar},
     {"getcharmod",	0, 0, f_getcharmod},
     {"getcmdline",	0, 0, f_getcmdline},
@@ -7933,11 +7947,11 @@ static struct fst
     {"getqflist",	0, 0, f_getqflist},
     {"getreg",		0, 2, f_getreg},
     {"getregtype",	0, 1, f_getregtype},
-    {"gettabvar",	2, 2, f_gettabvar},
-    {"gettabwinvar",	3, 3, f_gettabwinvar},
+    {"gettabvar",	2, 3, f_gettabvar},
+    {"gettabwinvar",	3, 4, f_gettabwinvar},
     {"getwinposx",	0, 0, f_getwinposx},
     {"getwinposy",	0, 0, f_getwinposy},
-    {"getwinvar",	2, 2, f_getwinvar},
+    {"getwinvar",	2, 3, f_getwinvar},
     {"glob",		1, 3, f_glob},
     {"globpath",	2, 3, f_globpath},
     {"has",		1, 1, f_has},
@@ -8056,6 +8070,9 @@ static struct fst
     {"settabvar",	3, 3, f_settabvar},
     {"settabwinvar",	4, 4, f_settabwinvar},
     {"setwinvar",	3, 3, f_setwinvar},
+#ifdef FEAT_CRYPT
+    {"sha256",		1, 1, f_sha256},
+#endif
     {"shellescape",	1, 2, f_shellescape},
     {"shiftwidth",	0, 0, f_shiftwidth},
     {"simplify",	1, 1, f_simplify},
@@ -8116,6 +8133,7 @@ static struct fst
     {"values",		1, 1, f_values},
     {"virtcol",		1, 1, f_virtcol},
     {"visualmode",	0, 1, f_visualmode},
+    {"wildmenumode",	0, 0, f_wildmenumode},
     {"winbufnr",	1, 1, f_winbufnr},
     {"wincol",		0, 0, f_wincol},
     {"winheight",	1, 1, f_winheight},
@@ -9325,7 +9343,7 @@ f_char2nr(argvars, rettv)
  */
     static void
 f_cindent(argvars, rettv)
-    typval_T	*argvars;
+    typval_T	*argvars UNUSED;
     typval_T	*rettv;
 {
 #ifdef FEAT_CINDENT
@@ -10374,9 +10392,9 @@ static void findfilendir __ARGS((typval_T *argvars, typval_T *rettv, int find_wh
 
     static void
 findfilendir(argvars, rettv, find_what)
-    typval_T	*argvars;
+    typval_T	*argvars UNUSED;
     typval_T	*rettv;
-    int		find_what;
+    int		find_what UNUSED;
 {
 #ifdef FEAT_SEARCHPATH
     char_u	*fname;
@@ -10746,9 +10764,9 @@ static void foldclosed_both __ARGS((typval_T *argvars, typval_T *rettv, int end)
  */
     static void
 foldclosed_both(argvars, rettv, end)
-    typval_T	*argvars;
+    typval_T	*argvars UNUSED;
     typval_T	*rettv;
-    int		end;
+    int		end UNUSED;
 {
 #ifdef FEAT_FOLDING
     linenr_T	lnum;
@@ -10797,8 +10815,8 @@ f_foldclosedend(argvars, rettv)
  */
     static void
 f_foldlevel(argvars, rettv)
-    typval_T	*argvars;
-    typval_T	*rettv;
+    typval_T	*argvars UNUSED;
+    typval_T	*rettv UNUSED;
 {
 #ifdef FEAT_FOLDING
     linenr_T	lnum;
@@ -11108,8 +11126,14 @@ f_getbufvar(argvars, rettv)
     ++emsg_off;
     buf = get_buf_tv(&argvars[0]);
 
-    rettv->v_type = VAR_STRING;
-    rettv->vval.v_string = NULL;
+    if (argvars[2].v_type != VAR_UNKNOWN)
+	/* set the default value */
+	copy_tv(&argvars[2], rettv);
+    else
+    {
+	rettv->v_type = VAR_STRING;
+	rettv->vval.v_string = NULL;
+    }
 
     if (buf != NULL && varname != NULL)
     {
@@ -11585,7 +11609,7 @@ f_getline(argvars, rettv)
     static void
 f_getmatches(argvars, rettv)
     typval_T	*argvars UNUSED;
-    typval_T	*rettv;
+    typval_T	*rettv UNUSED;
 {
 #ifdef FEAT_SEARCH_EXTRA
     dict_T	*dict;
@@ -11785,7 +11809,11 @@ f_gettabvar(argvars, rettv)
 	v = find_var_in_ht(&tp->tp_vars.dv_hashtab, varname, FALSE);
 	if (v != NULL)
 	    copy_tv(&v->di_tv, rettv);
+	else if (argvars[2].v_type != VAR_UNKNOWN)
+	    copy_tv(&argvars[2], rettv);
     }
+    else if (argvars[2].v_type != VAR_UNKNOWN)
+	copy_tv(&argvars[2], rettv);
 }
 
 /*
@@ -11907,8 +11935,14 @@ getwinvar(argvars, rettv, off)
     varname = get_tv_string_chk(&argvars[off + 1]);
     ++emsg_off;
 
-    rettv->v_type = VAR_STRING;
-    rettv->vval.v_string = NULL;
+    if (argvars[off + 2].v_type != VAR_UNKNOWN)
+	/* set the default return value */
+	copy_tv(&argvars[off + 2], rettv);
+    else
+    {
+	rettv->v_type = VAR_STRING;
+	rettv->vval.v_string = NULL;
+    }
 
     if (win != NULL && varname != NULL)
     {
@@ -13603,7 +13637,7 @@ f_line2byte(argvars, rettv)
  */
     static void
 f_lispindent(argvars, rettv)
-    typval_T	*argvars;
+    typval_T	*argvars UNUSED;
     typval_T	*rettv;
 {
 #ifdef FEAT_LISP
@@ -13997,8 +14031,8 @@ f_match(argvars, rettv)
  */
     static void
 f_matchadd(argvars, rettv)
-    typval_T	*argvars;
-    typval_T	*rettv;
+    typval_T	*argvars UNUSED;
+    typval_T	*rettv UNUSED;
 {
 #ifdef FEAT_SEARCH_EXTRA
     char_u	buf[NUMBUFLEN];
@@ -14035,7 +14069,7 @@ f_matchadd(argvars, rettv)
  */
     static void
 f_matcharg(argvars, rettv)
-    typval_T	*argvars;
+    typval_T	*argvars UNUSED;
     typval_T	*rettv;
 {
     if (rettv_list_alloc(rettv) == OK)
@@ -14067,8 +14101,8 @@ f_matcharg(argvars, rettv)
  */
     static void
 f_matchdelete(argvars, rettv)
-    typval_T	*argvars;
-    typval_T	*rettv;
+    typval_T	*argvars UNUSED;
+    typval_T	*rettv UNUSED;
 {
 #ifdef FEAT_SEARCH_EXTRA
     rettv->vval.v_number = match_delete(curwin,
@@ -14885,8 +14919,8 @@ list2proftime(arg, tm)
  */
     static void
 f_reltime(argvars, rettv)
-    typval_T	*argvars;
-    typval_T	*rettv;
+    typval_T	*argvars UNUSED;
+    typval_T	*rettv UNUSED;
 {
 #ifdef FEAT_RELTIME
     proftime_T	res;
@@ -14934,7 +14968,7 @@ f_reltime(argvars, rettv)
  */
     static void
 f_reltimestr(argvars, rettv)
-    typval_T	*argvars;
+    typval_T	*argvars UNUSED;
     typval_T	*rettv;
 {
 #ifdef FEAT_RELTIME
@@ -15987,7 +16021,7 @@ do_searchpair(spat, mpat, epat, dir, skip, flags, match_pos,
     int		flags;	    /* SP_SETPCMARK and other SP_ values */
     pos_T	*match_pos;
     linenr_T	lnum_stop;  /* stop at this line if not zero */
-    long	time_limit; /* stop after this many msec */
+    long	time_limit UNUSED; /* stop after this many msec */
 {
     char_u	*save_cpo;
     char_u	*pat, *pat2 = NULL, *pat3 = NULL;
@@ -16412,8 +16446,8 @@ f_setloclist(argvars, rettv)
  */
     static void
 f_setmatches(argvars, rettv)
-    typval_T	*argvars;
-    typval_T	*rettv;
+    typval_T	*argvars UNUSED;
+    typval_T	*rettv UNUSED;
 {
 #ifdef FEAT_SEARCH_EXTRA
     list_T	*l;
@@ -16737,6 +16771,24 @@ setwinvar(argvars, rettv, off)
 #endif
     }
 }
+
+#ifdef FEAT_CRYPT
+/*
+ * "sha256({string})" function
+ */
+    static void
+f_sha256(argvars, rettv)
+    typval_T	*argvars;
+    typval_T	*rettv;
+{
+    char_u	*p;
+
+    p = get_tv_string(&argvars[0]);
+    rettv->vval.v_string = vim_strsave(
+				    sha256_bytes(p, (int)STRLEN(p), NULL, 0));
+    rettv->v_type = VAR_STRING;
+}
+#endif /* FEAT_CRYPT */
 
 /*
  * "shellescape({string})" function
@@ -18467,7 +18519,7 @@ f_type(argvars, rettv)
  */
     static void
 f_undofile(argvars, rettv)
-    typval_T	*argvars;
+    typval_T	*argvars UNUSED;
     typval_T	*rettv;
 {
     rettv->v_type = VAR_STRING;
@@ -18577,6 +18629,20 @@ f_visualmode(argvars, rettv)
     /* A non-zero number or non-empty string argument: reset mode. */
     if (non_zero_arg(&argvars[0]))
 	curbuf->b_visual_mode_eval = NUL;
+#endif
+}
+
+/*
+ * "wildmenumode()" function
+ */
+    static void
+f_wildmenumode(argvars, rettv)
+    typval_T	*argvars UNUSED;
+    typval_T	*rettv UNUSED;
+{
+#ifdef FEAT_WILDMENU
+    if (wild_menu_showing)
+	rettv->vval.v_number = 1;
 #endif
 }
 
@@ -21168,6 +21234,9 @@ ex_function(eap)
 	    if (arg[j] != NUL)
 		emsg_funcname((char *)e_invarg2, arg);
 	}
+	/* Disallow using the g: dict. */
+	if (fudi.fd_dict != NULL && fudi.fd_dict->dv_scope == VAR_DEF_SCOPE)
+	    EMSG(_("E862: Cannot use g: here"));
     }
 
     /*

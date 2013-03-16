@@ -3390,6 +3390,9 @@ ins_compl_bs()
     if (compl_leader != NULL)
     {
 	ins_compl_new_leader();
+	if (compl_shown_match != NULL)
+	    /* Make sure current match is not a hidden item. */
+	    compl_curr_match = compl_shown_match;
 	return NUL;
     }
     return K_BS;
@@ -3861,6 +3864,12 @@ ins_compl_prep(c)
 #endif
 	}
     }
+#ifdef FEAT_AUTOCMD
+    else if (ctrl_x_mode == CTRL_X_LOCAL_MSG)
+	/* Trigger the CompleteDone event to give scripts a chance to act
+	 * upon the (possibly failed) completion. */
+	apply_autocmds(EVENT_COMPLETEDONE, NULL, NULL, FALSE, curbuf);
+#endif
 
     /* reset continue_* if we left expansion-mode, if we stay they'll be
      * (re)set properly in ins_complete() */
@@ -9151,9 +9160,8 @@ ins_mousescroll(dir)
 
     tpos = curwin->w_cursor;
 
-# if defined(FEAT_GUI) && defined(FEAT_WINDOWS)
-    /* Currently the mouse coordinates are only known in the GUI. */
-    if (gui.in_use && mouse_row >= 0 && mouse_col >= 0)
+# ifdef FEAT_WINDOWS
+    if (mouse_row >= 0 && mouse_col >= 0)
     {
 	int row, col;
 
@@ -9219,7 +9227,7 @@ ins_mousescroll(dir)
 # endif
     }
 
-# if defined(FEAT_GUI) && defined(FEAT_WINDOWS)
+# ifdef FEAT_WINDOWS
     curwin->w_redr_status = TRUE;
 
     curwin = old_curwin;

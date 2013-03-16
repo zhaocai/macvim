@@ -153,6 +153,7 @@ struct PyMethodDef { Py_ssize_t a; };
 # define PyDict_SetItemString dll_PyDict_SetItemString
 # define PyErr_BadArgument dll_PyErr_BadArgument
 # define PyErr_Clear dll_PyErr_Clear
+# define PyErr_PrintEx dll_PyErr_PrintEx
 # define PyErr_NoMemory dll_PyErr_NoMemory
 # define PyErr_Occurred dll_PyErr_Occurred
 # define PyErr_SetNone dll_PyErr_SetNone
@@ -256,6 +257,7 @@ static void* (*dll_PyMem_Malloc)(size_t);
 static int(*dll_PyDict_SetItemString)(PyObject *dp, char *key, PyObject *item);
 static int(*dll_PyErr_BadArgument)(void);
 static void(*dll_PyErr_Clear)(void);
+static void(*dll_PyErr_PrintEx)(int);
 static PyObject*(*dll_PyErr_NoMemory)(void);
 static PyObject*(*dll_PyErr_Occurred)(void);
 static void(*dll_PyErr_SetNone)(PyObject *);
@@ -385,6 +387,7 @@ static struct
     {"PyDict_SetItemString", (PYTHON_PROC*)&dll_PyDict_SetItemString},
     {"PyErr_BadArgument", (PYTHON_PROC*)&dll_PyErr_BadArgument},
     {"PyErr_Clear", (PYTHON_PROC*)&dll_PyErr_Clear},
+    {"PyErr_PrintEx", (PYTHON_PROC*)&dll_PyErr_PrintEx},
     {"PyErr_NoMemory", (PYTHON_PROC*)&dll_PyErr_NoMemory},
     {"PyErr_Occurred", (PYTHON_PROC*)&dll_PyErr_Occurred},
     {"PyErr_SetNone", (PYTHON_PROC*)&dll_PyErr_SetNone},
@@ -746,7 +749,7 @@ Python_Init(void)
 	PyMac_Initialize();
 #endif
 	/* Initialise threads, and below save the state using
-	 * PyGILState_Ensure.  Without the call to PyGILState_Ensure, thread
+	 * PyEval_SaveThread.  Without the call to PyEval_SaveThread, thread
 	 * specific state (such as the system trace hook), will be lost
 	 * between invocations of Python code. */
 	PyEval_InitThreads();
@@ -760,10 +763,6 @@ Python_Init(void)
 	if (PythonMod_Init())
 	    goto fail;
 
-	/* The first python thread is vim's, release the lock. */
-	Python_SaveThread();
-	pygilstate = PyGILState_Ensure();
-
 	globals = PyModule_GetDict(PyImport_AddModule("__main__"));
 
 	/* Remove the element from sys.path that was added because of our
@@ -772,7 +771,14 @@ Python_Init(void)
 	 * the current directory in sys.path. */
 	PyRun_SimpleString("import sys; sys.path = filter(lambda x: x != '/must>not&exist', sys.path)");
 
-	PyGILState_Release(pygilstate);
+	/* lock is created and acquired in PyEval_InitThreads() and thread
+	 * state is created in Py_Initialize()
+	 * there _PyGILState_NoteThreadState() also sets gilcounter to 1
+	 * (python must have threads enabled!)
+	 * so the following does both: unlock GIL and save thread state in TLS
+	 * without deleting thread state
+	 */
+	PyEval_SaveThread();
 
 	initialised = 1;
     }
@@ -858,7 +864,11 @@ DoPythonCommand(exarg_T *eap, const char *cmd, typval_T *rettv)
 
 	r = PyRun_String((char *)(cmd), Py_eval_input, globals, globals);
 	if (r == NULL)
+	{
+	    if (PyErr_Occurred() && !msg_silent)
+		PyErr_PrintEx(0);
 	    EMSG(_("E858: Eval did not return a valid python object"));
+	}
 	else
 	{
 	    if (ConvertFromPyObject(r, rettv) == -1)
