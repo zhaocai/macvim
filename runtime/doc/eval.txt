@@ -1,4 +1,4 @@
-*eval.txt*	For Vim version 7.3.  Last change: 2013 Jan 23
+*eval.txt*	For Vim version 7.3.  Last change: 2013 Feb 20
 
 
 		  VIM REFERENCE MANUAL	  by Bram Moolenaar
@@ -503,7 +503,7 @@ This removes all entries from "dict" with a value not matching 'x'.
 
 
 Dictionary function ~
-					*Dictionary-function* *self* *E725*
+				*Dictionary-function* *self* *E725* *E862*
 When a function is defined with the "dict" attribute it can be used in a
 special way with a dictionary.	Example: >
 	:function Mylen() dict
@@ -1777,7 +1777,6 @@ get( {list}, {idx} [, {def}])	any	get item {idx} from {list} or {def}
 get( {dict}, {key} [, {def}])	any	get item {key} from {dict} or {def}
 getbufline( {expr}, {lnum} [, {end}])
 				List	lines {lnum} to {end} of buffer {expr}
-getbufvar( {expr}, {varname})	any	variable {varname} in buffer {expr}
 getbufvar( {expr}, {varname} [, {def}])
 				any	variable {varname} in buffer {expr}
 getchar( [expr])		Number	get one character from the user
