@@ -1,4 +1,4 @@
-*todo.txt*      For Vim version 7.3.  Last change: 2013 Mar 07
+*todo.txt*      For Vim version 7.3.  Last change: 2013 Apr 12
 
 
 		  VIM REFERENCE MANUAL	  by Bram Moolenaar
@@ -41,81 +41,44 @@ Go through more coverity reports.
 
 Valgrind errors in test 16.
 
-Memory leaks in Lua, uncovered by test 85.
-
 Discussion about canonicalization of Hebrew. (Ron Aaron, 2011 April 10)
-
-Patch to build with Ruby 2.0 and Ming@ 64. (Ken Takata, 2013 Feb 28)
 
 Checking runtime scripts: Thilo Six, 2012 Jun 6.
 
 GTK: problem with 'L' in 'guioptions' changing the window width.
 (Aaron Cornelius, 2012 Feb 6)
 
-Patch for this problem: (David Bürgin (glts), 2013 Mar 5)
-8   ":g//" gives "Pattern not found error" with E486.  Should not use the
-    error number, it's not a regular error message.
-
-Patch to fix ":vimgrep //". (David Bürgin (glts), 2013 Mar 5)
-
-Updates for Debian runtime files. (James McCoy, 2013 Mar 3)
-Also an update for debcontrol in another message.
-
 Javascript file where indent gets stuck on: GalaxyMaster, 2012 May 3.
-
-Patch for ":sort" not properly handling an empty search pattern when there is
-no previous search pattern. (David Bürgin, 2013 Mar 4)
-
-system() breaks clipboard text.  (Yukihiro Nakadaira, 2013 Feb 28)
-Patch by Christian Brabandt, 2013 Mar 1.
-
-Patch for replace multi-byte character in multiple lines. (Yasuhiro Matsumoto,
-2013 Feb 27)
-
-Patch to avoid register being changed when yanking. (Christian Brabandt, 2013
-Feb 26)
-
-Patch to trigger QuitPre in more situations. (Tatsuro Fujii, 2013 Mar 3)
 
 The CompleteDone autocommand needs some info passed to it:
 - The word that was selected (empty if abandoned complete)
 - Type of completion: tag, omnifunc, user func.
 
+Using ":call foo#d.f()" doesn't autoload the "foo.vim" file.
+That is, calling a dictionary function on an autoloaded dict.
+Works OK for echo, just not for  ":call" and ":call call()". (Ted, 2011 Mar
+17)
+Patch by Christian Brabandt, 2013 Mar 23.
+
+Patch to make building with Ruby 2.0 on 64 bit system work. (eagletmt (Kohei
+Suzuki), 2013 Mar 25)
+
 Win32: When a directory name contains an exclamation mark, completion doesn't
 complete the contents of the directory.  No escaping for the "!"? (Jan
 Stocker, 2012 Jan 5)
 
-Patch to fix wrong completion entry after using backspace. (reported by
-Olivier Teuliere, fixed by Christian Brabandt, 2013 Feb 26)
-
-Patch to detect value of 'ambiwidth' from the termresponse.
-(Hayaki Saito, 2013 Feb 11)
-
-Matchparen does not update match when indenting. (Marc Aldorasi, 2013 Feb 9)
-Possible patch by Christian Brabandt, 2013 Feb 13.
+Patch to avoid that visul motion breaks repeat with ".". (Sung Pae, 2013 Mar
+25)
 
 Problem caused by patch 7.3.638: window->open does not update window
 correctly. Issue 91.
 
-Patch for this bug: Setting local value of 'number' resets global value.
-(Markus Heidelberg, 2013 Feb 17)
-
-Patch to add argument to bufname() to only consider buffers in the current
-tab.  (Alexey Radkov, 2013 Feb 8)  Example in later email.
-Is this right?
-
-Patch to fix compiler warnings for MingW 4.5.3. (Ken Takata, 2013 Jan 26)
-
-Bug: search() does not use the match at the cursor position if it's empty.
-(Christian Brabandt, 2013 Feb 16)  Patch later.
-
-On Mac do not define CASE_INSENSITIVE_FILENAME ? (Richo Healey, 2013 Mar 3)
-But do set 'wildignorecase' ?
-
-Patch to make it possible to create Title Case in :s. with \L\u.
-(James McCoy, 2013 Feb 13)
+Patch to fix that 'cedit' is recognized after :normal. (Christian Brabandt,
+2013 Mar 19, later message)
 
 Patch to view coverage of the tests. (Nazri Ramliy, 2013 Feb 15)
+
+Patch to make vim.bindeval() in Python work. (Yukihiro Nakadaira, 2013 Mar 25)
 
 Do allow real tags above the !_TAG entries. Undo older patch. Issue 90.
 
@@ -123,6 +86,8 @@ Patch to support 'u' in interactive substitute. (Christian Brabandt, 2012 Sep
 28)  With tests: Oct 9.
 
 Patch to make fold updates much faster. (Christian Brabandt, 2012 Dec)
+
+Patch to add more testing for Visual operators. (glts, 2013 Mar 28)
 
 Patch for IME handling, adds 'imactivatefunc' and 'imstatusfunc' option.
 (Yukihiro Nakadaira, 2012 Aug 16)
@@ -135,10 +100,23 @@ Brabandt, 2013 Feb 26.
 
 New syntax files for apt. (quidame, 2012 Sep 21)
 
+Patch to use bold/italic fonts when 'guifontewide' is set. (Ken Takata, 2013
+Mar 31)
+
+v:register is not directly reset to " after a delete command that specifies a
+register.  It is reset after the next command. (Steve Vermeulen, 2013 Mar 16)
+
 'ff' is wrong for one-line file without EOL. (Issue 77)
 
 Patch for if_lua. (Luis Carvalho, 2012 Aug 26, update Aug 29, another Aug 30,
 then Sep 1, reminder Oct 14)
+
+Patch to check if 'foldexpr' sets did_emsg. (Christian Brabandt, 2013 Mar 20)
+
+Patch to set antialiasing style on Windows. (Ondrej Balaz, 2013 Mar 14)
+Needs a different check for CLEARTYPE_QUALITY.
+
+Patch for repeating change that uses ":normal". (glts, 2013 March 23)
 
 Issue 72: 'autochdir' causes problems for :vimgrep.
 
@@ -157,7 +135,14 @@ MS-Windows: Crash opening very long file name starting with "\\".
 It's probably a good idea to make a negative value for 'sts' use the value of
 'sw'.  Patch by So8res, Oct 3 2012
 
+Test 79 fails on Windows only. (Michael Soyka, 2013 Apr 11).
+What makes the test script mapping continue after an error?
+
 patch to add "combine" flag to  syntax commands. (so8res, 2012 Dec 6)
+
+Combining characters are not used when executing a register with :@w.
+(William Fugh, 2013 Apr 5, more info from Ben Fritz)
+Patch by Christian Brabandt, 2013 Apr 6.  Second one.
 
 Bug in completion menu. (Olivier Teuliere, 2013 Feb 15)
 Patch by Christian Brabandt, Feb 16.
@@ -175,8 +160,10 @@ Patch to make confirm() display colors. (Christian Brabandt, 2012 Nov 9)
 
 Patch to add functions for signs. (Christian Brabandt, 2013 Jan 27)
 
-Patch to use directX to draw text on Windows.  Adds the 'directx' option.
-(Taro Muraoka, 2013 Jan 25)
+Patch to use directX to draw text on Windows.  Adds the 'renderoptions'
+option.  (Taro Muraoka, 2013 Jan 25, update 2013 Apr 3)
+
+Problem with refresh:always in completion. (Tyler Wade, 2013 Mar 17)
 
 b:undo_ftplugin cannot call a script-local function. (Boris Danilov, 2013 Jan
 7)
@@ -209,6 +196,9 @@ MS-Windows resizing problems:
   12) Patch: 2012 Jan 13  Needs more work (2012 Feb 2)
 
 'iminsert' global value set when using ":setlocal iminsert"? (Wu, 2012 Jun 23)
+
+Patch to append regesp to tag commands to make it possible to select one out
+of many matches. (Cody Cutler, 2013 Mar 28)
 
 Help for 'b:undo_indent'. (Thilo Six, 2012 May 28)
 Also question if examples are correct.
@@ -271,9 +261,6 @@ And one for gui_x11.txt.
     More recent version: https://retracile.net/wiki/VimBreakIndent
     Posted to vim-dev by Taylor Hedberg, 2011 Nov 25
 
-Problem with starting Visual block mode with :norm when 'virtualedit' is set.
-(David glts, 2012 Jun 5)
-
 ":cd" doesn't work when current directory path contains "**".
 finddir() has the same problem.  (Yukihiro Nakadaira, 2012 Jan 10)
 Requires a rewrite of the file_file_in_path code.
@@ -285,9 +272,6 @@ Should use has("browsefilter") in ftplugins.  Requires patch 7.3.593.
 Update for vim2html.pl. (Tyru, 2013 Feb 22)
 
 Issue 48: foldopen error can't be caught by try/catch
-
-"dg_" deletes including the last character, "d:normal! g_" doesn't.
-(Nomen Nescio, 2012 Jun 27)
 
 Patch to sort functions starting with '<' after others.  Omit dict functions,
 they can't be called. (Yasuhiro Matsumoto, 2011 Oct 11)
@@ -736,9 +720,6 @@ Syntax priority problem. (Charles Campbell, 2011 Sep 15)
 
 When completion inserts the first match, it may trigger the line to be folded.
 Disable updating folds while completion is active? (Peter Odding, 2010 Jun 9)
-
-Using ":call foo#d.f()" doesn't autoload the "foo.vim" file.  Works OK for
-echo, just not for  ":call" and ":call call()". (Ted, 2011 Mar 17)
 
 When a:base in 'completefunc' starts with a number it's passed as a number,
 not a string. (Sean Ma)  Need to add flag to call_func_retlist() to force a
@@ -3995,9 +3976,6 @@ Command line completion:
 
 
 Command line history:
-9   Remember which command lines were actually typed and were not loaded from
-    viminfo.  When writing viminfo append only these lines, so that lines from
-    other Vim's are not overwritten.
 -   Add "KeyWasTyped" flag: It's reset before each command and set when a
     character from the keyboard is consumed. Value is used to decide to put a
     command line in history or not. Put line in history if it didn't

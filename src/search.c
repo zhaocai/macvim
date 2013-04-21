@@ -736,6 +736,8 @@ searchit(win, buf, pos, dir, pat, count, options, pat_use, stop_lnum, tm)
 					++matchcol;
 				}
 			    }
+			    if (matchcol == 0 && (options & SEARCH_START))
+				break;
 			    if (ptr[matchcol] == NUL
 				    || (nmatched = vim_regexec_multi(&regmatch,
 					      win, buf, lnum + matchpos.lnum,
@@ -876,7 +878,7 @@ searchit(win, buf, pos, dir, pat, count, options, pat_use, stop_lnum, tm)
 		    /* With the SEARCH_END option move to the last character
 		     * of the match.  Don't do it for an empty match, end
 		     * should be same as start then. */
-		    if (options & SEARCH_END && !(options & SEARCH_NOOF)
+		    if ((options & SEARCH_END) && !(options & SEARCH_NOOF)
 			    && !(matchpos.lnum == endpos.lnum
 				&& matchpos.col == endpos.col))
 		    {

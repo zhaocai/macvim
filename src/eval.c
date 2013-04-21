@@ -788,7 +788,7 @@ static char_u *get_tv_string __ARGS((typval_T *varp));
 static char_u *get_tv_string_buf __ARGS((typval_T *varp, char_u *buf));
 static char_u *get_tv_string_buf_chk __ARGS((typval_T *varp, char_u *buf));
 static dictitem_T *find_var __ARGS((char_u *name, hashtab_T **htp));
-static dictitem_T *find_var_in_ht __ARGS((hashtab_T *ht, char_u *varname, int writing));
+static dictitem_T *find_var_in_ht __ARGS((hashtab_T *ht, int htname, char_u *varname, int writing));
 static hashtab_T *find_var_ht __ARGS((char_u *name, char_u **varname));
 static void vars_clear_ext __ARGS((hashtab_T *ht, int free_val));
 static void delete_var __ARGS((hashtab_T *ht, hashitem_T *hi));
@@ -2131,7 +2131,7 @@ list_buf_vars(first)
 {
     char_u	numbuf[NUMBUFLEN];
 
-    list_hashtable_vars(&curbuf->b_vars.dv_hashtab, (char_u *)"b:",
+    list_hashtable_vars(&curbuf->b_vars->dv_hashtab, (char_u *)"b:",
 								 TRUE, first);
 
     sprintf((char *)numbuf, "%ld", (long)curbuf->b_changedtick);
@@ -2146,7 +2146,7 @@ list_buf_vars(first)
 list_win_vars(first)
     int *first;
 {
-    list_hashtable_vars(&curwin->w_vars.dv_hashtab,
+    list_hashtable_vars(&curwin->w_vars->dv_hashtab,
 						 (char_u *)"w:", TRUE, first);
 }
 
@@ -2158,7 +2158,7 @@ list_win_vars(first)
 list_tab_vars(first)
     int *first;
 {
-    list_hashtable_vars(&curtab->tp_vars.dv_hashtab,
+    list_hashtable_vars(&curtab->tp_vars->dv_hashtab,
 						 (char_u *)"t:", TRUE, first);
 }
 #endif
@@ -3948,7 +3948,7 @@ get_user_var_name(xp, idx)
     }
 
     /* b: variables */
-    ht = &curbuf->b_vars.dv_hashtab;
+    ht = &curbuf->b_vars->dv_hashtab;
     if (bdone < ht->ht_used)
     {
 	if (bdone++ == 0)
@@ -3966,7 +3966,7 @@ get_user_var_name(xp, idx)
     }
 
     /* w: variables */
-    ht = &curwin->w_vars.dv_hashtab;
+    ht = &curwin->w_vars->dv_hashtab;
     if (wdone < ht->ht_used)
     {
 	if (wdone++ == 0)
@@ -3980,7 +3980,7 @@ get_user_var_name(xp, idx)
 
 #ifdef FEAT_WINDOWS
     /* t: variables */
-    ht = &curtab->tp_vars.dv_hashtab;
+    ht = &curtab->tp_vars->dv_hashtab;
     if (tdone < ht->ht_used)
     {
 	if (tdone++ == 0)
@@ -6788,16 +6788,20 @@ garbage_collect()
 
     /* buffer-local variables */
     for (buf = firstbuf; buf != NULL; buf = buf->b_next)
-	set_ref_in_ht(&buf->b_vars.dv_hashtab, copyID);
+	set_ref_in_item(&buf->b_bufvar.di_tv, copyID);
 
     /* window-local variables */
     FOR_ALL_TAB_WINDOWS(tp, wp)
-	set_ref_in_ht(&wp->w_vars.dv_hashtab, copyID);
+	set_ref_in_item(&wp->w_winvar.di_tv, copyID);
+#ifdef FEAT_AUTOCMD
+    if (aucmd_win != NULL)
+	set_ref_in_item(&aucmd_win->w_winvar.di_tv, copyID);
+#endif
 
 #ifdef FEAT_WINDOWS
     /* tabpage-local variables */
     for (tp = first_tabpage; tp != NULL; tp = tp->tp_next)
-	set_ref_in_ht(&tp->tp_vars.dv_hashtab, copyID);
+	set_ref_in_item(&tp->tp_winvar.di_tv, copyID);
 #endif
 
     /* global variables */
@@ -9020,14 +9024,15 @@ f_bufloaded(argvars, rettv)
     rettv->vval.v_number = (buf != NULL && buf->b_ml.ml_mfp != NULL);
 }
 
-static buf_T *get_buf_tv __ARGS((typval_T *tv));
+static buf_T *get_buf_tv __ARGS((typval_T *tv, int curtab_only));
 
 /*
  * Get buffer by number or pattern.
  */
     static buf_T *
-get_buf_tv(tv)
+get_buf_tv(tv, curtab_only)
     typval_T	*tv;
+    int		curtab_only;
 {
     char_u	*name = tv->vval.v_string;
     int		save_magic;
@@ -9050,7 +9055,7 @@ get_buf_tv(tv)
     p_cpo = (char_u *)"";
 
     buf = buflist_findnr(buflist_findpat(name, name + STRLEN(name),
-								TRUE, FALSE));
+						    TRUE, FALSE, curtab_only));
 
     p_magic = save_magic;
     p_cpo = save_cpo;
@@ -9074,7 +9079,7 @@ f_bufname(argvars, rettv)
 
     (void)get_tv_number(&argvars[0]);	    /* issue errmsg if type error */
     ++emsg_off;
-    buf = get_buf_tv(&argvars[0]);
+    buf = get_buf_tv(&argvars[0], FALSE);
     rettv->v_type = VAR_STRING;
     if (buf != NULL && buf->b_fname != NULL)
 	rettv->vval.v_string = vim_strsave(buf->b_fname);
@@ -9097,7 +9102,7 @@ f_bufnr(argvars, rettv)
 
     (void)get_tv_number(&argvars[0]);	    /* issue errmsg if type error */
     ++emsg_off;
-    buf = get_buf_tv(&argvars[0]);
+    buf = get_buf_tv(&argvars[0], FALSE);
     --emsg_off;
 
     /* If the buffer isn't found and the second argument is not zero create a
@@ -9132,7 +9137,7 @@ f_bufwinnr(argvars, rettv)
 
     (void)get_tv_number(&argvars[0]);	    /* issue errmsg if type error */
     ++emsg_off;
-    buf = get_buf_tv(&argvars[0]);
+    buf = get_buf_tv(&argvars[0], TRUE);
 #ifdef FEAT_WINDOWS
     for (wp = firstwin; wp; wp = wp->w_next)
     {
@@ -11096,7 +11101,7 @@ f_getbufline(argvars, rettv)
 
     (void)get_tv_number(&argvars[0]);	    /* issue errmsg if type error */
     ++emsg_off;
-    buf = get_buf_tv(&argvars[0]);
+    buf = get_buf_tv(&argvars[0], FALSE);
     --emsg_off;
 
     lnum = get_tv_lnum_buf(&argvars[1], buf);
@@ -11120,20 +11125,15 @@ f_getbufvar(argvars, rettv)
     buf_T	*save_curbuf;
     char_u	*varname;
     dictitem_T	*v;
+    int		done = FALSE;
 
     (void)get_tv_number(&argvars[0]);	    /* issue errmsg if type error */
     varname = get_tv_string_chk(&argvars[1]);
     ++emsg_off;
-    buf = get_buf_tv(&argvars[0]);
+    buf = get_buf_tv(&argvars[0], FALSE);
 
-    if (argvars[2].v_type != VAR_UNKNOWN)
-	/* set the default value */
-	copy_tv(&argvars[2], rettv);
-    else
-    {
-	rettv->v_type = VAR_STRING;
-	rettv->vval.v_string = NULL;
-    }
+    rettv->v_type = VAR_STRING;
+    rettv->vval.v_string = NULL;
 
     if (buf != NULL && varname != NULL)
     {
@@ -11142,28 +11142,36 @@ f_getbufvar(argvars, rettv)
 	curbuf = buf;
 
 	if (*varname == '&')	/* buffer-local-option */
-	    get_option_tv(&varname, rettv, TRUE);
+	{
+	    if (get_option_tv(&varname, rettv, TRUE) == OK)
+		done = TRUE;
+	}
 	else if (STRCMP(varname, "changedtick") == 0)
 	{
 	    rettv->v_type = VAR_NUMBER;
 	    rettv->vval.v_number = curbuf->b_changedtick;
+	    done = TRUE;
 	}
 	else
 	{
-	    if (*varname == NUL)
-		/* let getbufvar({nr}, "") return the "b:" dictionary.  The
-		 * scope prefix before the NUL byte is required by
-		 * find_var_in_ht(). */
-		varname = (char_u *)"b:" + 2;
-	    /* look up the variable */
-	    v = find_var_in_ht(&curbuf->b_vars.dv_hashtab, varname, FALSE);
+	    /* Look up the variable. */
+	    /* Let getbufvar({nr}, "") return the "b:" dictionary. */
+	    v = find_var_in_ht(&curbuf->b_vars->dv_hashtab,
+							 'b', varname, FALSE);
 	    if (v != NULL)
+	    {
 		copy_tv(&v->di_tv, rettv);
+		done = TRUE;
+	    }
 	}
 
 	/* restore previous notion of curbuf */
 	curbuf = save_curbuf;
     }
+
+    if (!done && argvars[2].v_type != VAR_UNKNOWN)
+	/* use the default value */
+	copy_tv(&argvars[2], rettv);
 
     --emsg_off;
 }
@@ -11770,6 +11778,7 @@ f_gettabvar(argvars, rettv)
     tabpage_T	*tp;
     dictitem_T	*v;
     char_u	*varname;
+    int		done = FALSE;
 
     rettv->v_type = VAR_STRING;
     rettv->vval.v_string = NULL;
@@ -11779,13 +11788,15 @@ f_gettabvar(argvars, rettv)
     if (tp != NULL && varname != NULL)
     {
 	/* look up the variable */
-	v = find_var_in_ht(&tp->tp_vars.dv_hashtab, varname, FALSE);
+	v = find_var_in_ht(&tp->tp_vars->dv_hashtab, 0, varname, FALSE);
 	if (v != NULL)
+	{
 	    copy_tv(&v->di_tv, rettv);
-	else if (argvars[2].v_type != VAR_UNKNOWN)
-	    copy_tv(&argvars[2], rettv);
+	    done = TRUE;
+	}
     }
-    else if (argvars[2].v_type != VAR_UNKNOWN)
+
+    if (!done && argvars[2].v_type != VAR_UNKNOWN)
 	copy_tv(&argvars[2], rettv);
 }
 
@@ -11897,6 +11908,7 @@ getwinvar(argvars, rettv, off)
     char_u	*varname;
     dictitem_T	*v;
     tabpage_T	*tp;
+    int		done = FALSE;
 
 #ifdef FEAT_WINDOWS
     if (off == 1)
@@ -11908,14 +11920,8 @@ getwinvar(argvars, rettv, off)
     varname = get_tv_string_chk(&argvars[off + 1]);
     ++emsg_off;
 
-    if (argvars[off + 2].v_type != VAR_UNKNOWN)
-	/* set the default return value */
-	copy_tv(&argvars[off + 2], rettv);
-    else
-    {
-	rettv->v_type = VAR_STRING;
-	rettv->vval.v_string = NULL;
-    }
+    rettv->v_type = VAR_STRING;
+    rettv->vval.v_string = NULL;
 
     if (win != NULL && varname != NULL)
     {
@@ -11926,24 +11932,30 @@ getwinvar(argvars, rettv, off)
 	curbuf = win->w_buffer;
 
 	if (*varname == '&')	/* window-local-option */
-	    get_option_tv(&varname, rettv, 1);
+	{
+	    if (get_option_tv(&varname, rettv, 1) == OK)
+		done = TRUE;
+	}
 	else
 	{
-	    if (*varname == NUL)
-		/* let getwinvar({nr}, "") return the "w:" dictionary.  The
-		 * scope prefix before the NUL byte is required by
-		 * find_var_in_ht(). */
-		varname = (char_u *)"w:" + 2;
-	    /* look up the variable */
-	    v = find_var_in_ht(&win->w_vars.dv_hashtab, varname, FALSE);
+	    /* Look up the variable. */
+	    /* Let getwinvar({nr}, "") return the "w:" dictionary. */
+	    v = find_var_in_ht(&win->w_vars->dv_hashtab, 'w', varname, FALSE);
 	    if (v != NULL)
+	    {
 		copy_tv(&v->di_tv, rettv);
+		done = TRUE;
+	    }
 	}
 
 	/* restore previous notion of curwin */
 	curwin = oldcurwin;
 	curbuf = curwin->w_buffer;
     }
+
+    if (!done && argvars[off + 2].v_type != VAR_UNKNOWN)
+	/* use the default return value */
+	copy_tv(&argvars[off + 2], rettv);
 
     --emsg_off;
 }
@@ -14345,7 +14357,7 @@ f_mode(argvars, rettv)
     rettv->v_type = VAR_STRING;
 }
 
-#ifdef FEAT_MZSCHEME
+#if defined(FEAT_MZSCHEME) || defined(PROTO)
 /*
  * "mzeval()" function
  */
@@ -16237,7 +16249,7 @@ f_setbufvar(argvars, rettv)
 	return;
     (void)get_tv_number(&argvars[0]);	    /* issue errmsg if type error */
     varname = get_tv_string_chk(&argvars[1]);
-    buf = get_buf_tv(&argvars[0]);
+    buf = get_buf_tv(&argvars[0], FALSE);
     varp = &argvars[2];
 
     if (buf != NULL && varname != NULL && varp != NULL)
@@ -20061,16 +20073,17 @@ find_var(name, htp)
 	*htp = ht;
     if (ht == NULL)
 	return NULL;
-    return find_var_in_ht(ht, varname, htp != NULL);
+    return find_var_in_ht(ht, *name, varname, htp != NULL);
 }
 
 /*
- * Find variable "varname" in hashtab "ht".
+ * Find variable "varname" in hashtab "ht" with name "htname".
  * Returns NULL if not found.
  */
     static dictitem_T *
-find_var_in_ht(ht, varname, writing)
+find_var_in_ht(ht, htname, varname, writing)
     hashtab_T	*ht;
+    int		htname;
     char_u	*varname;
     int		writing;
 {
@@ -20079,7 +20092,7 @@ find_var_in_ht(ht, varname, writing)
     if (*varname == NUL)
     {
 	/* Must be something like "s:", otherwise "ht" would be NULL. */
-	switch (varname[-2])
+	switch (htname)
 	{
 	    case 's': return &SCRIPT_SV(current_SID)->sv_var;
 	    case 'g': return &globvars_var;
@@ -20154,12 +20167,12 @@ find_var_ht(name, varname)
 			       || vim_strchr(name + 2, AUTOLOAD_CHAR) != NULL)
 	return NULL;
     if (*name == 'b')				/* buffer variable */
-	return &curbuf->b_vars.dv_hashtab;
+	return &curbuf->b_vars->dv_hashtab;
     if (*name == 'w')				/* window variable */
-	return &curwin->w_vars.dv_hashtab;
+	return &curwin->w_vars->dv_hashtab;
 #ifdef FEAT_WINDOWS
     if (*name == 't')				/* tab page variable */
-	return &curtab->tp_vars.dv_hashtab;
+	return &curtab->tp_vars->dv_hashtab;
 #endif
     if (*name == 'v')				/* v: variable */
 	return &vimvarht;
@@ -20246,6 +20259,19 @@ init_var_dict(dict, dict_var, scope)
     dict_var->di_tv.v_lock = VAR_FIXED;
     dict_var->di_flags = DI_FLAGS_RO | DI_FLAGS_FIX;
     dict_var->di_key[0] = NUL;
+}
+
+/*
+ * Unreference a dictionary initialized by init_var_dict().
+ */
+    void
+unref_var_dict(dict)
+    dict_T	*dict;
+{
+    /* Now the dict needs to be freed if no one else is using it, go back to
+     * normal reference counting. */
+    dict->dv_refcount -= DO_NOT_FREE_CNT - 1;
+    dict_unref(dict);
 }
 
 /*
@@ -20396,7 +20422,7 @@ set_var(name, tv, copy)
 	EMSG2(_(e_illvar), name);
 	return;
     }
-    v = find_var_in_ht(ht, varname, TRUE);
+    v = find_var_in_ht(ht, 0, varname, TRUE);
 
     if (tv->v_type == VAR_FUNC && var_check_func_name(name, v == NULL))
 	return;
