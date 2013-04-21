@@ -43,6 +43,6 @@ no multibyte chAracter
     four leadinG spaces
 two		consecutive tabs
 two	tabs	in one line
-one â¦ multibyteCharacter
-a âbâ two multiByte characters
-âcâ1â¬ three mulTibyte characters
+one … multibyteCharacter
+a “b” two multiByte characters
+“c”1€ three mulTibyte characters

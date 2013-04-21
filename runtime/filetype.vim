@@ -1,7 +1,7 @@
 " Vim support file to detect file types
 "
 " Maintainer:	Bram Moolenaar <Bram@vim.org>
-" Last Change:	2013 Jan 31
+" Last Change:	2013 Feb 28
 
 " Listen very carefully, I will say this only once
 if exists("did_load_filetypes")
@@ -324,6 +324,9 @@ au BufNewFile,BufRead calendar			setf calendar
 
 " C#
 au BufNewFile,BufRead *.cs			setf cs
+
+" CSDL
+au BufNewFile,BufRead *.csdl			setf csdl
 
 " Cabal
 au BufNewFile,BufRead *.cabal			setf cabal
@@ -1079,6 +1082,9 @@ au BufNewFile,BufRead *[mM]akefile,*.mk,*.mak,*.dsp setf make
 " MakeIndex
 au BufNewFile,BufRead *.ist,*.mst		setf ist
 
+" Mallard
+au BufNewFile,BufRead *.page			setf mallard
+
 " Manpage
 au BufNewFile,BufRead *.man			setf man
 
@@ -1628,6 +1634,9 @@ func! s:FTr()
     setf r
   endif
 endfunc
+
+" ReDIF
+au BufRead,BufNewFile *.rdf			setf redif
 
 " Remind
 au BufNewFile,BufRead .reminders,*.remind,*.rem		setf remind
@@ -2188,8 +2197,12 @@ au BufNewFile,BufRead *.uc			setf uc
 au BufNewFile,BufRead */etc/updatedb.conf	setf updatedb
 
 " Upstart (init(8)) config files
-au BufNewFile,BufRead */etc/init/*.conf,*/.init/*.conf          setf upstart
-au BufNewFile,BufRead */etc/init/*.override,*/.init/*.override  setf upstart
+au BufNewFile,BufRead */usr/share/upstart/*.conf               setf upstart
+au BufNewFile,BufRead */usr/share/upstart/*.override           setf upstart
+au BufNewFile,BufRead */etc/init/*.conf,*/etc/init/*.override  setf upstart
+au BufNewFile,BufRead */.init/*.conf,*/.init/*.override        setf upstart
+au BufNewFile,BufRead */.config/upstart/*.conf                 setf upstart
+au BufNewFile,BufRead */.config/upstart/*.override             setf upstart
 
 " Vera
 au BufNewFile,BufRead *.vr,*.vri,*.vrh		setf vera

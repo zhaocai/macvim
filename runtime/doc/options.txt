@@ -1,4 +1,4 @@
-*options.txt*	For Vim version 7.3.  Last change: 2013 Jan 30
+*options.txt*	For Vim version 7.3.  Last change: 2013 Feb 28
 
 
 		  VIM REFERENCE MANUAL	  by Bram Moolenaar
@@ -991,7 +991,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 	- The backup file will be created in the first directory in the list
 	  where this is possible.  The directory must exist, Vim will not
 	  create it for you.
-	- Empty means that no backup file will be created ('patchmode' is
+	- Empty means that no backup file will be created ( 'patchmode' is
 	  impossible!).  Writing may fail because of this.
 	- A directory "." means to put the backup file in the same directory
 	  as the edited file.
@@ -1468,11 +1468,14 @@ A jump table for the options with a short description can be found at |Q_op|.
 			|gui-clipboard|.
 
 						*clipboard-unnamedplus*
-	unnamedplus	A variant of "unnamed" flag which uses the clipboard
-			register '+' (|quoteplus|) instead of register '*' for
-			all operations except yank.  Yank shall copy the text
-			into register '+' and also into '*' when "unnamed" is
-			included.
+	unnamedplus	A variant of the "unnamed" flag which uses the
+			clipboard register '+' (|quoteplus|) instead of
+			register '*' for all yank, delete, change and put
+			operations which would normally go to the unnamed
+			register.  When "unnamed" is also included to the
+			option, yank operations (but not delete, change or
+			put) will additionally copy the text into register
+			'*'.
 			Only available with the |+X11| feature.
 			Availability can be checked with: >
 				if has('unnamedplus')
@@ -1705,7 +1708,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 	when CTRL-P or CTRL-N are used.  It is also used for whole-line
 	completion |i_CTRL-X_CTRL-L|.  It indicates the type of completion
 	and the places to scan.  It is a comma separated list of flags:
-	.	scan the current buffer ('wrapscan' is ignored)
+	.	scan the current buffer ( 'wrapscan' is ignored)
 	w	scan buffers from other windows
 	b	scan other loaded buffers that are in the buffer list
 	u	scan the unloaded buffers that are in the buffer list
@@ -7198,7 +7201,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 			{not in Vi}
 	Encoding used for the terminal.  This specifies what character
 	encoding the keyboard produces and the display will understand.  For
-	the GUI it only applies to the keyboard ('encoding' is used for the
+	the GUI it only applies to the keyboard ( 'encoding' is used for the
 	display).  Except for the Mac when 'macatsui' is off, then
 	'termencoding' should be "macroman" (for the Carbon GUI).
 	In the Win32 console version the default value is the console codepage
@@ -8042,6 +8045,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 	CTRL-P/CTRL-N, cause the highlight to move to the appropriate match.
 	When 'wildmode' is used, "wildmenu" mode is used where "full" is
 	specified.  "longest" and "list" do not start "wildmenu" mode.
+	You can check the current mode with |wildmenumode()|.
 	If there are more matches than can fit in the line, a ">" is shown on
 	the right and/or a "<" is shown on the left.  The status line scrolls
 	as needed.
