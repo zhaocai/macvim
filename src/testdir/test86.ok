@@ -38,7 +38,7 @@ Vim(put):E684:
 Vim(python):E725:
 Vim(python):E117:
 [0.0, 0.0]
-IndexError
+KeyError
 TypeError
 TypeError
 ValueError
@@ -76,3 +76,7 @@ vim:	Vim(let):E859:
 [0, 1, 2, 3, 4, 5]
 [0, 1, 2, 3, 4, 5]
 [0, 1, 2, 3, 4, 5]
+Abc
+bac
+def
+bar
