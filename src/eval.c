@@ -16625,7 +16625,7 @@ f_settabvar(argvars, rettv)
     if (tp != NULL && varname != NULL && varp != NULL)
     {
 	save_curtab = curtab;
-	goto_tabpage_tp(tp, TRUE);
+	goto_tabpage_tp(tp, FALSE, FALSE);
 
 	tabvarname = alloc((unsigned)STRLEN(varname) + 3);
 	if (tabvarname != NULL)
@@ -16638,7 +16638,7 @@ f_settabvar(argvars, rettv)
 
 	/* Restore current tabpage */
 	if (valid_tabpage(save_curtab))
-	    goto_tabpage_tp(save_curtab, TRUE);
+	    goto_tabpage_tp(save_curtab, FALSE, FALSE);
     }
 }
 
@@ -16664,9 +16664,48 @@ f_setwinvar(argvars, rettv)
     setwinvar(argvars, rettv, 0);
 }
 
+    int
+switch_win(save_curwin, save_curtab, win, tp)
+    win_T	**save_curwin;
+    tabpage_T	**save_curtab;
+    win_T	*win;
+    tabpage_T	*tp;
+{
+#ifdef FEAT_WINDOWS
+    /* set curwin to be our win, temporarily */
+    *save_curwin = curwin;
+    *save_curtab = curtab;
+    goto_tabpage_tp(tp, FALSE, FALSE);
+    if (!win_valid(win))
+	return FAIL;
+    curwin = win;
+    curbuf = curwin->w_buffer;
+#endif
+    return OK;
+}
+
+    void
+restore_win(save_curwin, save_curtab)
+    win_T	*save_curwin;
+    tabpage_T	*save_curtab;
+{
+#ifdef FEAT_WINDOWS
+    /* Restore current tabpage and window, if still valid (autocommands can
+     * make them invalid). */
+    if (valid_tabpage(save_curtab))
+	goto_tabpage_tp(save_curtab, FALSE, FALSE);
+    if (win_valid(save_curwin))
+    {
+	curwin = save_curwin;
+	curbuf = curwin->w_buffer;
+    }
+#endif
+}
+
 /*
  * "setwinvar()" and "settabwinvar()" functions
  */
+
     static void
 setwinvar(argvars, rettv, off)
     typval_T	*argvars;
@@ -16699,14 +16738,8 @@ setwinvar(argvars, rettv, off)
     if (win != NULL && varname != NULL && varp != NULL)
     {
 #ifdef FEAT_WINDOWS
-	/* set curwin to be our win, temporarily */
-	save_curwin = curwin;
-	save_curtab = curtab;
-	goto_tabpage_tp(tp, TRUE);
-	if (!win_valid(win))
+	if (switch_win(&save_curwin, &save_curtab, win, tp) == FAIL)
 	    return;
-	curwin = win;
-	curbuf = curwin->w_buffer;
 #endif
 
 	if (*varname == '&')
@@ -16734,15 +16767,7 @@ setwinvar(argvars, rettv, off)
 	}
 
 #ifdef FEAT_WINDOWS
-	/* Restore current tabpage and window, if still valid (autocomands can
-	 * make them invalid). */
-	if (valid_tabpage(save_curtab))
-	    goto_tabpage_tp(save_curtab, TRUE);
-	if (win_valid(save_curwin))
-	{
-	    curwin = save_curwin;
-	    curbuf = curwin->w_buffer;
-	}
+	restore_win(save_curwin, save_curtab);
 #endif
     }
 }

@@ -5916,7 +5916,7 @@ else
     /* If this program fails, then RTLD_GLOBAL is needed.
      * RTLD_GLOBAL will be used and then it is not possible to
      * have both python versions enabled in the same vim instance.
-     * Only the first pyhton version used will be switched on.
+     * Only the first python version used will be switched on.
      */
 
     int no_rtl_global_needed_for(char *python_instsoname, char *prefix)
@@ -5982,7 +5982,7 @@ else
     /* If this program fails, then RTLD_GLOBAL is needed.
      * RTLD_GLOBAL will be used and then it is not possible to
      * have both python versions enabled in the same vim instance.
-     * Only the first pyhton version used will be switched on.
+     * Only the first python version used will be switched on.
      */
 
     int no_rtl_global_needed_for(char *python_instsoname, wchar_t *prefix)
@@ -7746,7 +7746,11 @@ fi
         { $as_echo "$as_me:${as_lineno-$LINENO}: checking if X11 header files implicitly declare return values" >&5
 $as_echo_n "checking if X11 header files implicitly declare return values... " >&6; }
     cflags_save=$CFLAGS
-    CFLAGS="$CFLAGS $X_CFLAGS -Werror"
+        if test "$GCC" = yes; then
+      CFLAGS="$CFLAGS $X_CFLAGS -Werror"
+    else
+      CFLAGS="$CFLAGS $X_CFLAGS"
+    fi
     cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 #include <X11/Xlib.h>
