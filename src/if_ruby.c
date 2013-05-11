@@ -149,6 +149,7 @@
 #endif
 
 static int ruby_initialized = 0;
+static void *ruby_stack_start;
 static VALUE objtbl;
 
 static VALUE mVIM;
@@ -231,6 +232,7 @@ static void ruby_vim_init(void);
 # define rb_float_new			dll_rb_float_new
 # define rb_ary_new			dll_rb_ary_new
 # define rb_ary_push			dll_rb_ary_push
+# define ruby_init_stack		dll_ruby_init_stack
 #else
 # define rb_str2cstr			dll_rb_str2cstr
 #endif
@@ -255,7 +257,6 @@ static void ruby_vim_init(void);
 # define rb_enc_str_new			dll_rb_enc_str_new
 # define rb_sprintf			dll_rb_sprintf
 # define rb_require			dll_rb_require
-# define ruby_init_stack		dll_ruby_init_stack
 # define ruby_process_options		dll_ruby_process_options
 #endif
 
@@ -340,6 +341,7 @@ static char * (*dll_rb_string_value_ptr) (volatile VALUE*);
 static VALUE (*dll_rb_float_new) (double);
 static VALUE (*dll_rb_ary_new) (void);
 static VALUE (*dll_rb_ary_push) (VALUE, VALUE);
+static void (*ruby_init_stack)(VALUE*);
 #endif
 #ifdef RUBY19_OR_LATER
 static VALUE (*dll_rb_int2big)(SIGNED_VALUE);
@@ -352,7 +354,6 @@ static rb_encoding* (*dll_rb_enc_find) (const char*);
 static VALUE (*dll_rb_enc_str_new) (const char*, long, rb_encoding*);
 static VALUE (*dll_rb_sprintf) (const char*, ...);
 static VALUE (*dll_rb_require) (const char*);
-static void (*ruby_init_stack)(VALUE*);
 static void* (*ruby_process_options)(int, char**);
 #endif
 
@@ -480,6 +481,7 @@ static struct
 #endif
 #if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
     {"rb_string_value_ptr", (RUBY_PROC*)&dll_rb_string_value_ptr},
+    {"ruby_init_stack", (RUBY_PROC*)&dll_ruby_init_stack},
 # if DYNAMIC_RUBY_VER <= 19
     {"rb_float_new", (RUBY_PROC*)&dll_rb_float_new},
 # else
@@ -496,7 +498,6 @@ static struct
     {"rb_enc_str_new", (RUBY_PROC*)&dll_rb_enc_str_new},
     {"rb_sprintf", (RUBY_PROC*)&dll_rb_sprintf},
     {"rb_require", (RUBY_PROC*)&dll_rb_require},
-    {"ruby_init_stack", (RUBY_PROC*)&dll_ruby_init_stack},
     {"ruby_process_options", (RUBY_PROC*)&dll_ruby_process_options},
 #endif
     {"", NULL},
@@ -721,8 +722,8 @@ static int ensure_ruby_initialized(void)
 	    NtInitialize(&argc, &argv);
 #endif
 	    {
-#ifdef RUBY19_OR_LATER
-		RUBY_INIT_STACK;
+#if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
+		ruby_init_stack(ruby_stack_start);
 #endif
 		ruby_init();
 	    }
@@ -1393,4 +1394,10 @@ static void ruby_vim_init(void)
 
     rb_define_virtual_variable("$curbuf", buffer_s_current, 0);
     rb_define_virtual_variable("$curwin", window_s_current, 0);
+}
+
+void vim_ruby_init(void *stack_start)
+{
+    /* should get machine stack start address early in main function */
+    ruby_stack_start = stack_start;
 }
