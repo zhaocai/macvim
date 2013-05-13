@@ -13,6 +13,12 @@ let b:did_ftplugin = 1
 let s:cpo_save = &cpo
 set cpo&vim
 
+if has("gui_running") && !has("gui_win32")
+  setlocal keywordprg=ri\ -T\ -f\ bs
+else
+  setlocal keywordprg=ri
+endif
+
 " Matchit support
 if exists("loaded_matchit") && !exists("b:match_words")
   let b:match_ignorecase = 0
@@ -77,7 +83,9 @@ function! s:query_path(root)
   let cwd = getcwd()
   try
     exe cd fnameescape(a:root)
-    return split(system(path_check),',')
+    let path = split(system(path_check),',')
+    exe cd fnameescape(cwd)
+    return path
   finally
     exe cd fnameescape(cwd)
   endtry
