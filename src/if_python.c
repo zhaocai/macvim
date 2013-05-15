@@ -624,6 +624,9 @@ static int initialised = 0;
 
 #define DESTRUCTOR_FINISH(self) Py_DECREF(self);
 
+#define WIN_PYTHON_REF(win) win->w_python_ref
+#define BUF_PYTHON_REF(buf) buf->b_python_ref
+
 static PyObject *OutputGetattr(PyObject *, char *);
 static PyObject *BufferGetattr(PyObject *, char *);
 static PyObject *WindowGetattr(PyObject *, char *);
@@ -1021,9 +1024,6 @@ static int ConvertFromPyObject(PyObject *, typval_T *);
 
 #define BufferType_Check(obj) ((obj)->ob_type == &BufferType)
 
-static PyInt BufferLength(PyObject *);
-static PyObject *BufferItem(PyObject *, PyInt);
-static PyObject *BufferSlice(PyObject *, PyInt, PyInt);
 static PyInt BufferAssItem(PyObject *, PyInt, PyObject *);
 static PyInt BufferAssSlice(PyObject *, PyInt, PyInt, PyObject *);
 
@@ -1059,42 +1059,6 @@ static PySequenceMethods BufferAsSeq = {
  */
 
     static PyObject *
-BufferNew(buf_T *buf)
-{
-    /* We need to handle deletion of buffers underneath us.
-     * If we add a "b_python_ref" field to the buf_T structure,
-     * then we can get at it in buf_freeall() in vim. We then
-     * need to create only ONE Python object per buffer - if
-     * we try to create a second, just INCREF the existing one
-     * and return it. The (single) Python object referring to
-     * the buffer is stored in "b_python_ref".
-     * Question: what to do on a buf_freeall(). We'll probably
-     * have to either delete the Python object (DECREF it to
-     * zero - a bad idea, as it leaves dangling refs!) or
-     * set the buf_T * value to an invalid value (-1?), which
-     * means we need checks in all access functions... Bah.
-     */
-
-    BufferObject *self;
-
-    if (buf->b_python_ref != NULL)
-    {
-	self = buf->b_python_ref;
-	Py_INCREF(self);
-    }
-    else
-    {
-	self = PyObject_NEW(BufferObject, &BufferType);
-	if (self == NULL)
-	    return NULL;
-	self->buf = buf;
-	buf->b_python_ref = self;
-    }
-
-    return (PyObject *)(self);
-}
-
-    static PyObject *
 BufferGetattr(PyObject *self, char *name)
 {
     PyObject *r;
@@ -1112,43 +1076,15 @@ BufferGetattr(PyObject *self, char *name)
 /******************/
 
     static PyInt
-BufferLength(PyObject *self)
-{
-    /* HOW DO WE SIGNAL AN ERROR FROM THIS FUNCTION? */
-    if (CheckBuffer((BufferObject *)(self)))
-	return -1; /* ??? */
-
-    return (((BufferObject *)(self))->buf->b_ml.ml_line_count);
-}
-
-    static PyObject *
-BufferItem(PyObject *self, PyInt n)
-{
-    return RBItem((BufferObject *)(self), n, 1,
-		  (int)((BufferObject *)(self))->buf->b_ml.ml_line_count);
-}
-
-    static PyObject *
-BufferSlice(PyObject *self, PyInt lo, PyInt hi)
-{
-    return RBSlice((BufferObject *)(self), lo, hi, 1,
-		   (int)((BufferObject *)(self))->buf->b_ml.ml_line_count);
-}
-
-    static PyInt
 BufferAssItem(PyObject *self, PyInt n, PyObject *val)
 {
-    return RBAsItem((BufferObject *)(self), n, val, 1,
-		     (PyInt)((BufferObject *)(self))->buf->b_ml.ml_line_count,
-		     NULL);
+    return RBAsItem((BufferObject *)(self), n, val, 1, -1, NULL);
 }
 
     static PyInt
 BufferAssSlice(PyObject *self, PyInt lo, PyInt hi, PyObject *val)
 {
-    return RBAsSlice((BufferObject *)(self), lo, hi, val, 1,
-		      (PyInt)((BufferObject *)(self))->buf->b_ml.ml_line_count,
-		      NULL);
+    return RBAsSlice((BufferObject *)(self), lo, hi, val, 1, -1, NULL);
 }
 
 static PySequenceMethods RangeAsSeq = {
@@ -1222,40 +1158,6 @@ static PySequenceMethods BufListAsSeq = {
  */
 
     static PyObject *
-WindowNew(win_T *win)
-{
-    /* We need to handle deletion of windows underneath us.
-     * If we add a "w_python_ref" field to the win_T structure,
-     * then we can get at it in win_free() in vim. We then
-     * need to create only ONE Python object per window - if
-     * we try to create a second, just INCREF the existing one
-     * and return it. The (single) Python object referring to
-     * the window is stored in "w_python_ref".
-     * On a win_free() we set the Python object's win_T* field
-     * to an invalid value. We trap all uses of a window
-     * object, and reject them if the win_T* field is invalid.
-     */
-
-    WindowObject *self;
-
-    if (win->w_python_ref)
-    {
-	self = win->w_python_ref;
-	Py_INCREF(self);
-    }
-    else
-    {
-	self = PyObject_NEW(WindowObject, &WindowType);
-	if (self == NULL)
-	    return NULL;
-	self->win = win;
-	win->w_python_ref = self;
-    }
-
-    return (PyObject *)(self);
-}
-
-    static PyObject *
 WindowGetattr(PyObject *self, char *name)
 {
     PyObject *r;
@@ -1294,11 +1196,11 @@ static PySequenceMethods WinListAsSeq = {
     void
 python_buffer_free(buf_T *buf)
 {
-    if (buf->b_python_ref != NULL)
+    if (BUF_PYTHON_REF(buf) != NULL)
     {
-	BufferObject *bp = buf->b_python_ref;
+	BufferObject *bp = BUF_PYTHON_REF(buf);
 	bp->buf = INVALID_BUFFER_VALUE;
-	buf->b_python_ref = NULL;
+	BUF_PYTHON_REF(buf) = NULL;
     }
 }
 
@@ -1306,11 +1208,11 @@ python_buffer_free(buf_T *buf)
     void
 python_window_free(win_T *win)
 {
-    if (win->w_python_ref != NULL)
+    if (WIN_PYTHON_REF(win) != NULL)
     {
-	WindowObject *wp = win->w_python_ref;
+	WindowObject *wp = WIN_PYTHON_REF(win);
 	wp->win = INVALID_WINDOW_VALUE;
-	win->w_python_ref = NULL;
+	WIN_PYTHON_REF(win) = NULL;
     }
 }
 #endif
