@@ -302,11 +302,16 @@ syn match diffLine	"^---$"
 syn match diffLine	"^\d\+\(,\d\+\)\=[cda]\d\+\>.*"
 
 syn match diffFile	"^diff.*"
-syn match diffFile	"^+++ .*"
 syn match diffFile	"^Index: .*$"
 syn match diffFile	"^==== .*$"
-syn match diffOldFile	"^\*\*\* .*"
-syn match diffNewFile	"^--- .*"
+
+if exists("g:diffsyn_context_format")
+  syn match diffOldFile	"^\*\*\* .*"
+  syn match diffNewFile	"^--- .*"
+else
+  syn match diffOldFile	"^--- .*"
+  syn match diffNewFile	"^+++ .*"
+endif
 
 syn match diffComment	"^#.*"
 
