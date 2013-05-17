@@ -209,12 +209,12 @@ Constants of the "vim" module
 	to which the variables referred.
 
 vim.buffers						*python-buffers*
-	A sequence object providing access to the list of vim buffers.  The
+	A mapping object providing access to the list of vim buffers.  The
 	object supports the following operations: >
 	    :py b = vim.buffers[i]	# Indexing (read-only)
 	    :py b in vim.buffers	# Membership test
 	    :py n = len(vim.buffers)	# Number of elements
-	    :py for b in vim.buffers:	# Sequential access
+	    :py for b in vim.buffers:	# Iterating over buffer list
 <
 vim.windows						*python-windows*
 	A sequence object providing access to the list of vim windows.  The
@@ -223,13 +223,28 @@ vim.windows						*python-windows*
 	    :py w in vim.windows	# Membership test
 	    :py n = len(vim.windows)	# Number of elements
 	    :py for w in vim.windows:	# Sequential access
+<	Note: vim.windows object always accesses current tab page,. 
+	|python-tabpage|.windows objects are bound to parent |python-tabpage| 
+	object and always use windows from that tab page (or throw vim.error 
+	in case tab page was deleted). You can keep a reference to both 
+	without keeping a reference to vim module object or |python-tabpage|, 
+	they will not loose their properties in this case.
+
+vim.tabpages						*python-tabpages*
+	A sequence object providing access to the list of vim tab pages. The 
+	object supports the following operations: >
+	    :py t = vim.tabpages[i]	# Indexing (read-only)
+	    :py t in vim.tabpages	# Membership test
+	    :py n = len(vim.tabpages)	# Number of elements
+	    :py for t in vim.tabpages:	# Sequential access
 <
 vim.current						*python-current*
 	An object providing access (via specific attributes) to various
 	"current" objects available in vim:
 		vim.current.line	The current line (RW)		String
-		vim.current.buffer	The current buffer (RO)		Buffer
-		vim.current.window	The current window (RO)		Window
+		vim.current.buffer	The current buffer (RW)		Buffer
+		vim.current.window	The current window (RW)		Window
+		vim.current.tabpage	The current tab page (RW)	TabPage
 		vim.current.range	The current line range (RO)	Range
 
 	The last case deserves a little explanation.  When the :python or
@@ -237,6 +252,22 @@ vim.current						*python-current*
 	"current range".  A range is a bit like a buffer, but with all access
 	restricted to a subset of lines.  See |python-range| for more details.
 
+	Note: When assigning to vim.current.{buffer,window,tabpage} it expects 
+	valid |python-buffer|, |python-window| or |python-tabpage| objects 
+	respectively. Assigning triggers normal (with |autocommand|s) 
+	switching to given buffer, window or tab page. It is the only way to 
+	switch UI objects in python: you can't assign to 
+	|python-tabpage|.window attribute. To switch without triggering 
+	autocommands use >
+	    py << EOF
+	    saved_eventignore = vim.options['eventignore']
+	    vim.options['eventignore'] = 'all'
+	    try:
+	        vim.current.buffer = vim.buffers[2] # Switch to buffer 2
+	    finally:
+	        vim.options['eventignore'] = saved_eventignore
+	    EOF
+<
 vim.vars						*python-vars*
 vim.vvars						*python-vvars*
 	Dictionary-like objects holding dictionaries with global (|g:|) and 
@@ -375,6 +406,8 @@ Example (assume r is the current range):
 Window objects represent vim windows.  You can obtain them in a number of ways:
 	- via vim.current.window (|python-current|)
 	- from indexing vim.windows (|python-windows|)
+	- from indexing "windows" attribute of a tab page (|python-tabpage|)
+	- from the "window" attribute of a tab page (|python-tabpage|)
 
 You can manipulate window objects only through their attributes.  They have no
 methods, and no sequence or other interface.
@@ -405,6 +438,24 @@ Window attributes are:
 
 The height attribute is writable only if the screen is split horizontally.
 The width attribute is writable only if the screen is split vertically.
+
+==============================================================================
+6. Tab page objects					*python-tabpage*
+
+Tab page objects represent vim tab pages. You can obtain them in a number of 
+ways:
+	- via vim.current.tabpage (|python-current|)
+	- from indexing vim.tabpages (|python-tabpages|)
+
+You can use this object to access tab page windows. They have no methods and 
+no sequence or other interfaces.
+
+Tab page attributes are:
+	number		The tab page number like the one returned by 
+			|tabpagenr()|.
+	windows		Like |python-windows|, but for current tab page.
+	vars		The tab page |t:| variables.
+	window		Current tabpage window.
 
 ==============================================================================
 6. pyeval() and py3eval() Vim functions			*python-pyeval*
@@ -439,6 +490,21 @@ if the `:py3` command is working: >
 <							*:py3file*
 The |:py3file| command works similar to |:pyfile|.
 
+							*:py3do*
+:[range]py3do {body}	Execute Python function "def _vim_pydo(line, linenr):
+			{body}" for each line in the [range], with the
+			function arguments being set to the text of each line
+			in turn, without a trailing <EOL>, and the current
+			line number. The function should return a string or
+			None. If a string is returned, it becomes the text of
+			the line in the current turn. The default for [range]
+			is the whole file: "1,$".
+			{not in Vi}
+
+Examples:
+>
+	:py3do return "%s\t%d" % (line[::-1], len(line))
+	:py3do if line: return "%4d: %s" % (linenr, line)
 
 Vim can be built in four ways (:version output):
 1. No Python support	    (-python, -python3)

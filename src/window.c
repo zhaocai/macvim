@@ -2129,7 +2129,9 @@ close_last_window_tabpage(win, free_buf, prev_curtab)
 {
     if (firstwin == lastwin)
     {
+#ifdef FEAT_AUTOCMD
 	buf_T	*old_curbuf = curbuf;
+#endif
 
 	/*
 	 * Closing the last window in a tab page.  First go to another tab
@@ -3515,6 +3517,15 @@ free_tabpage(tp)
     hash_init(&tp->tp_vars->dv_hashtab);
     unref_var_dict(tp->tp_vars);
 #endif
+
+#ifdef FEAT_PYTHON
+    python_tabpage_free(tp);
+#endif
+
+#ifdef FEAT_PYTHON3
+    python3_tabpage_free(tp);
+#endif
+
     vim_free(tp);
 }
 
@@ -6744,15 +6755,30 @@ get_match(wp, id)
 
 #if defined(FEAT_PYTHON) || defined(FEAT_PYTHON3) || defined(PROTO)
     int
-get_win_number(win_T *wp)
+get_win_number(win_T *wp, win_T *first_win)
 {
     int		i = 1;
     win_T	*w;
 
-    for (w = firstwin; w != NULL && w != wp; w = W_NEXT(w))
+    for (w = first_win; w != NULL && w != wp; w = W_NEXT(w))
 	++i;
 
     if (w == NULL)
+	return 0;
+    else
+	return i;
+}
+
+    int
+get_tab_number(tabpage_T *tp)
+{
+    int		i = 1;
+    tabpage_T	*t;
+
+    for (t = first_tabpage; t != NULL && t != tp; t = t->tp_next)
+	++i;
+
+    if (t == NULL)
 	return 0;
     else
 	return i;

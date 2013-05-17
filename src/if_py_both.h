@@ -27,6 +27,7 @@ typedef int Py_ssize_t;  /* Python 2.4 and earlier don't have this type. */
 
 #define INVALID_BUFFER_VALUE ((buf_T *)(-1))
 #define INVALID_WINDOW_VALUE ((win_T *)(-1))
+#define INVALID_TABPAGE_VALUE ((tabpage_T *)(-1))
 
 static int ConvertFromPyObject(PyObject *, typval_T *);
 static int _ConvertFromPyObject(PyObject *, typval_T *, PyObject *);
@@ -70,7 +71,8 @@ OutputSetattr(PyObject *self, char *name, PyObject *val)
 {
     if (val == NULL)
     {
-	PyErr_SetString(PyExc_AttributeError, _("can't delete OutputObject attributes"));
+	PyErr_SetString(PyExc_AttributeError,
+		_("can't delete OutputObject attributes"));
 	return -1;
     }
 
@@ -531,45 +533,61 @@ static struct PyMethodDef VimMethods[] = {
 };
 
 /*
- * Buffer list object - Implementation
+ * Generic iterator object
  */
 
-static PyTypeObject BufListType;
-static PySequenceMethods BufListAsSeq;
+static PyTypeObject IterType;
+
+typedef PyObject *(*nextfun)(void **);
+typedef void (*destructorfun)(void *);
+
+/* Main purpose of this object is removing the need for do python initialization 
+ * (i.e. PyType_Ready and setting type attributes) for a big bunch of objects.
+ */
 
 typedef struct
 {
     PyObject_HEAD
-} BufListObject;
+    void *cur;
+    nextfun next;
+    destructorfun destruct;
+} IterObject;
 
-    static PyInt
-BufListLength(PyObject *self UNUSED)
+    static PyObject *
+IterNew(void *start, destructorfun destruct, nextfun next)
 {
-    buf_T	*b = firstbuf;
-    PyInt	n = 0;
+    IterObject *self;
 
-    while (b)
-    {
-	++n;
-	b = b->b_next;
-    }
+    self = PyObject_NEW(IterObject, &IterType);
+    self->cur = start;
+    self->next = next;
+    self->destruct = destruct;
 
-    return n;
+    return (PyObject *)(self);
+}
+
+    static void
+IterDestructor(PyObject *self)
+{
+    IterObject *this = (IterObject *)(self);
+
+    this->destruct(this->cur);
+
+    DESTRUCTOR_FINISH(self);
 }
 
     static PyObject *
-BufListItem(PyObject *self UNUSED, PyInt n)
+IterNext(PyObject *self)
 {
-    buf_T *b;
+    IterObject *this = (IterObject *)(self);
 
-    for (b = firstbuf; b; b = b->b_next, --n)
-    {
-	if (n == 0)
-	    return BufferNew(b);
-    }
+    return this->next(&this->cur);
+}
 
-    PyErr_SetString(PyExc_IndexError, _("no such buffer"));
-    return NULL;
+    static PyObject *
+IterIter(PyObject *self)
+{
+    return self;
 }
 
 typedef struct pylinkedlist_S {
@@ -680,13 +698,10 @@ DictionarySetattr(PyObject *self, char *name, PyObject *val)
 	}
 	else
 	{
-	    if (!PyBool_Check(val))
-	    {
-		PyErr_SetString(PyExc_TypeError, _("Only boolean objects are allowed"));
+	    int		istrue = PyObject_IsTrue(val);
+	    if (istrue == -1)
 		return -1;
-	    }
-
-	    if (val == Py_True)
+	    else if (istrue)
 		this->dict->dv_lock = VAR_LOCKED;
 	    else
 		this->dict->dv_lock = 0;
@@ -721,7 +736,7 @@ DictionaryItem(PyObject *self, PyObject *keyObject)
 
     if (di == NULL)
     {
-	PyErr_SetString(PyExc_KeyError, _("no such key in dictionary"));
+	PyErr_SetObject(PyExc_KeyError, keyObject);
 	return NULL;
     }
 
@@ -754,7 +769,7 @@ DictionaryAssItem(PyObject *self, PyObject *keyObject, PyObject *valObject)
 	if (di == NULL)
 	{
 	    DICTKEY_UNREF
-	    PyErr_SetString(PyExc_IndexError, _("no such key in dictionary"));
+	    PyErr_SetObject(PyExc_KeyError, keyObject);
 	    return -1;
 	}
 	hi = hash_find(&d->dv_hashtab, di->di_key);
@@ -906,7 +921,7 @@ ListItem(PyObject *self, Py_ssize_t index)
 
     if (index>=ListLength(self))
     {
-	PyErr_SetString(PyExc_IndexError, "list index out of range");
+	PyErr_SetString(PyExc_IndexError, _("list index out of range"));
 	return NULL;
     }
     li = list_find(((ListObject *) (self))->list, (long) index);
@@ -970,6 +985,55 @@ ListSlice(PyObject *self, Py_ssize_t first, Py_ssize_t last)
     return list;
 }
 
+typedef struct
+{
+    listwatch_T	lw;
+    list_T	*list;
+} listiterinfo_T;
+
+    static void
+ListIterDestruct(listiterinfo_T *lii)
+{
+    list_rem_watch(lii->list, &lii->lw);
+    PyMem_Free(lii);
+}
+
+    static PyObject *
+ListIterNext(listiterinfo_T **lii)
+{
+    PyObject	*r;
+
+    if (!((*lii)->lw.lw_item))
+	return NULL;
+
+    if (!(r = ConvertToPyObject(&((*lii)->lw.lw_item->li_tv))))
+	return NULL;
+
+    (*lii)->lw.lw_item = (*lii)->lw.lw_item->li_next;
+
+    return r;
+}
+
+    static PyObject *
+ListIter(PyObject *self)
+{
+    listiterinfo_T	*lii;
+    list_T	*l = ((ListObject *) (self))->list;
+
+    if (!(lii = PyMem_New(listiterinfo_T, 1)))
+    {
+	PyErr_NoMemory();
+	return NULL;
+    }
+
+    list_add_watch(l, &lii->lw);
+    lii->lw.lw_item = l->lv_first;
+    lii->list = l;
+
+    return IterNew(lii,
+	    (destructorfun) ListIterDestruct, (nextfun) ListIterNext);
+}
+
     static int
 ListAssItem(PyObject *self, Py_ssize_t index, PyObject *obj)
 {
@@ -985,7 +1049,7 @@ ListAssItem(PyObject *self, Py_ssize_t index, PyObject *obj)
     }
     if (index>length || (index==length && obj==NULL))
     {
-	PyErr_SetString(PyExc_IndexError, "list index out of range");
+	PyErr_SetString(PyExc_IndexError, _("list index out of range"));
 	return -1;
     }
 
@@ -1124,7 +1188,8 @@ ListSetattr(PyObject *self, char *name, PyObject *val)
 
     if (val == NULL)
     {
-	PyErr_SetString(PyExc_AttributeError, _("Cannot delete DictionaryObject attributes"));
+	PyErr_SetString(PyExc_AttributeError,
+		_("cannot delete vim.dictionary attributes"));
 	return -1;
     }
 
@@ -1132,18 +1197,15 @@ ListSetattr(PyObject *self, char *name, PyObject *val)
     {
 	if (this->list->lv_lock == VAR_FIXED)
 	{
-	    PyErr_SetString(PyExc_TypeError, _("Cannot modify fixed list"));
+	    PyErr_SetString(PyExc_TypeError, _("cannot modify fixed list"));
 	    return -1;
 	}
 	else
 	{
-	    if (!PyBool_Check(val))
-	    {
-		PyErr_SetString(PyExc_TypeError, _("Only boolean objects are allowed"));
+	    int		istrue = PyObject_IsTrue(val);
+	    if (istrue == -1)
 		return -1;
-	    }
-
-	    if (val == Py_True)
+	    else if (istrue)
 		this->list->lv_lock = VAR_LOCKED;
 	    else
 		this->list->lv_lock = 0;
@@ -1152,7 +1214,7 @@ ListSetattr(PyObject *self, char *name, PyObject *val)
     }
     else
     {
-	PyErr_SetString(PyExc_AttributeError, _("Cannot set this attribute"));
+	PyErr_SetString(PyExc_AttributeError, _("cannot set this attribute"));
 	return -1;
     }
 }
@@ -1234,7 +1296,14 @@ FunctionCall(PyObject *self, PyObject *argsObject, PyObject *kwargs)
 	}
     }
 
+    Py_BEGIN_ALLOW_THREADS
+    Python_Lock_Vim();
+
     error = func_call(name, &args, selfdict, &rettv);
+
+    Python_Release_Vim();
+    Py_END_ALLOW_THREADS
+
     if (error != OK)
     {
 	result = NULL;
@@ -1297,7 +1366,7 @@ OptionsItem(OptionsObject *this, PyObject *keyObject)
 
     if (flags == 0)
     {
-	PyErr_SetString(PyExc_KeyError, "Option does not exist in given scope");
+	PyErr_SetObject(PyExc_KeyError, keyObject);
 	return NULL;
     }
 
@@ -1321,7 +1390,8 @@ OptionsItem(OptionsObject *this, PyObject *keyObject)
 	    return PyBytes_FromString((char *) stringval);
 	else
 	{
-	    PyErr_SetString(PyExc_ValueError, "Unable to get option value");
+	    PyErr_SetString(PyExc_RuntimeError,
+		    _("unable to get option value"));
 	    return NULL;
 	}
     }
@@ -1391,7 +1461,7 @@ OptionsAssItem(OptionsObject *this, PyObject *keyObject, PyObject *valObject)
 
     if (flags == 0)
     {
-	PyErr_SetString(PyExc_KeyError, "Option does not exist in given scope");
+	PyErr_SetObject(PyExc_KeyError, keyObject);
 	return -1;
     }
 
@@ -1399,13 +1469,14 @@ OptionsAssItem(OptionsObject *this, PyObject *keyObject, PyObject *valObject)
     {
 	if (this->opt_type == SREQ_GLOBAL)
 	{
-	    PyErr_SetString(PyExc_ValueError, "Unable to unset global option");
+	    PyErr_SetString(PyExc_ValueError,
+		    _("unable to unset global option"));
 	    return -1;
 	}
 	else if (!(flags & SOPT_GLOBAL))
 	{
-	    PyErr_SetString(PyExc_ValueError, "Unable to unset option without "
-						"global value");
+	    PyErr_SetString(PyExc_ValueError, _("unable to unset option "
+						"without global value"));
 	    return -1;
 	}
 	else
@@ -1419,14 +1490,11 @@ OptionsAssItem(OptionsObject *this, PyObject *keyObject, PyObject *valObject)
 
     if (flags & SOPT_BOOL)
     {
-	if (!PyBool_Check(valObject))
-	{
-	    PyErr_SetString(PyExc_ValueError, "Object must be boolean");
+	int	istrue = PyObject_IsTrue(valObject);
+	if (istrue == -1)
 	    return -1;
-	}
-
-	r = set_option_value_for(key, (valObject == Py_True), NULL, opt_flags,
-				this->opt_type, this->from);
+	r = set_option_value_for(key, istrue, NULL,
+				opt_flags, this->opt_type, this->from);
     }
     else if (flags & SOPT_NUM)
     {
@@ -1441,7 +1509,7 @@ OptionsAssItem(OptionsObject *this, PyObject *keyObject, PyObject *valObject)
 	    val = PyLong_AsLong(valObject);
 	else
 	{
-	    PyErr_SetString(PyExc_ValueError, "Object must be integer");
+	    PyErr_SetString(PyExc_TypeError, _("object must be integer"));
 	    return -1;
 	}
 
@@ -1479,7 +1547,7 @@ OptionsAssItem(OptionsObject *this, PyObject *keyObject, PyObject *valObject)
 	}
 	else
 	{
-	    PyErr_SetString(PyExc_ValueError, "Object must be string");
+	    PyErr_SetString(PyExc_TypeError, _("object must be string"));
 	    return -1;
 	}
 
@@ -1530,6 +1598,155 @@ static PyMappingMethods OptionsAsMapping = {
     (objobjargproc) OptionsAssItem,
 };
 
+/* Tabpage object
+ */
+
+typedef struct
+{
+    PyObject_HEAD
+    tabpage_T	*tab;
+} TabPageObject;
+
+static PyObject *WinListNew(TabPageObject *tabObject);
+
+static PyTypeObject TabPageType;
+
+    static int
+CheckTabPage(TabPageObject *this)
+{
+    if (this->tab == INVALID_TABPAGE_VALUE)
+    {
+	PyErr_SetVim(_("attempt to refer to deleted tab page"));
+	return -1;
+    }
+
+    return 0;
+}
+
+    static PyObject *
+TabPageNew(tabpage_T *tab)
+{
+    TabPageObject *self;
+
+    if (TAB_PYTHON_REF(tab))
+    {
+	self = TAB_PYTHON_REF(tab);
+	Py_INCREF(self);
+    }
+    else
+    {
+	self = PyObject_NEW(TabPageObject, &TabPageType);
+	if (self == NULL)
+	    return NULL;
+	self->tab = tab;
+	TAB_PYTHON_REF(tab) = self;
+    }
+
+    return (PyObject *)(self);
+}
+
+    static void
+TabPageDestructor(PyObject *self)
+{
+    TabPageObject *this = (TabPageObject *)(self);
+
+    if (this->tab && this->tab != INVALID_TABPAGE_VALUE)
+	TAB_PYTHON_REF(this->tab) = NULL;
+
+    DESTRUCTOR_FINISH(self);
+}
+
+    static PyObject *
+TabPageAttr(TabPageObject *this, char *name)
+{
+    if (strcmp(name, "windows") == 0)
+	return WinListNew(this);
+    else if (strcmp(name, "number") == 0)
+	return PyLong_FromLong((long) get_tab_number(this->tab));
+    else if (strcmp(name, "vars") == 0)
+	return DictionaryNew(this->tab->tp_vars);
+    else if (strcmp(name, "window") == 0)
+    {
+	/* For current tab window.c does not bother to set or update tp_curwin
+	 */
+	if (this->tab == curtab)
+	    return WindowNew(curwin);
+	else
+	    return WindowNew(this->tab->tp_curwin);
+    }
+    return NULL;
+}
+
+    static PyObject *
+TabPageRepr(PyObject *self)
+{
+    static char repr[100];
+    TabPageObject *this = (TabPageObject *)(self);
+
+    if (this->tab == INVALID_TABPAGE_VALUE)
+    {
+	vim_snprintf(repr, 100, _("<tabpage object (deleted) at %p>"), (self));
+	return PyString_FromString(repr);
+    }
+    else
+    {
+	int	t = get_tab_number(this->tab);
+
+	if (t == 0)
+	    vim_snprintf(repr, 100, _("<tabpage object (unknown) at %p>"),
+								      (self));
+	else
+	    vim_snprintf(repr, 100, _("<tabpage %d>"), t - 1);
+
+	return PyString_FromString(repr);
+    }
+}
+
+static struct PyMethodDef TabPageMethods[] = {
+    /* name,	    function,		calling,    documentation */
+    { NULL,	    NULL,		0,	    NULL }
+};
+
+/*
+ * Window list object
+ */
+
+static PyTypeObject TabListType;
+static PySequenceMethods TabListAsSeq;
+
+typedef struct
+{
+    PyObject_HEAD
+} TabListObject;
+
+    static PyInt
+TabListLength(PyObject *self UNUSED)
+{
+    tabpage_T	*tp = first_tabpage;
+    PyInt	n = 0;
+
+    while (tp != NULL)
+    {
+	++n;
+	tp = tp->tp_next;
+    }
+
+    return n;
+}
+
+    static PyObject *
+TabListItem(PyObject *self UNUSED, PyInt n)
+{
+    tabpage_T	*tp;
+
+    for (tp = first_tabpage; tp != NULL; tp = tp->tp_next, --n)
+	if (n == 0)
+	    return TabPageNew(tp);
+
+    PyErr_SetString(PyExc_IndexError, _("no such tab page"));
+    return NULL;
+}
+
 /* Window object
  */
 
@@ -1539,8 +1756,6 @@ typedef struct
     win_T	*win;
 } WindowObject;
 
-static int WindowSetattr(PyObject *, char *, PyObject *);
-static PyObject *WindowRepr(PyObject *);
 static PyTypeObject WindowType;
 
     static int
@@ -1632,7 +1847,7 @@ WindowAttr(WindowObject *this, char *name)
 	return OptionsNew(SREQ_WIN, this->win, (checkfun) CheckWindow,
 			(PyObject *) this);
     else if (strcmp(name, "number") == 0)
-	return PyLong_FromLong((long) get_win_number(this->win));
+	return PyLong_FromLong((long) get_win_number(this->win, firstwin));
     else if (strcmp(name,"__members__") == 0)
 	return Py_BuildValue("[ssssssss]", "buffer", "cursor", "height", "vars",
 		"options", "number", "row", "col");
@@ -1748,7 +1963,7 @@ WindowRepr(PyObject *self)
     }
     else
     {
-	int	w = get_win_number(this->win);
+	int	w = get_win_number(this->win, firstwin);
 
 	if (w == 0)
 	    vim_snprintf(repr, 100, _("<window object (unknown) at %p>"),
@@ -1775,13 +1990,58 @@ static PySequenceMethods WinListAsSeq;
 typedef struct
 {
     PyObject_HEAD
+    TabPageObject	*tabObject;
 } WinListObject;
 
-    static PyInt
-WinListLength(PyObject *self UNUSED)
+    static PyObject *
+WinListNew(TabPageObject *tabObject)
 {
-    win_T	*w = firstwin;
+    WinListObject	*self;
+
+    self = PyObject_NEW(WinListObject, &WinListType);
+    self->tabObject = tabObject;
+    Py_INCREF(tabObject);
+
+    return (PyObject *)(self);
+}
+
+    static void
+WinListDestructor(PyObject *self)
+{
+    TabPageObject	*tabObject = ((WinListObject *)(self))->tabObject;
+
+    if (tabObject)
+	Py_DECREF((PyObject *)(tabObject));
+
+    DESTRUCTOR_FINISH(self);
+}
+
+    static win_T *
+get_firstwin(WinListObject *this)
+{
+    if (this->tabObject)
+    {
+	if (CheckTabPage(this->tabObject))
+	    return NULL;
+	/* For current tab window.c does not bother to set or update tp_firstwin
+	 */
+	else if (this->tabObject->tab == curtab)
+	    return firstwin;
+	else
+	    return this->tabObject->tab->tp_firstwin;
+    }
+    else
+	return firstwin;
+}
+
+    static PyInt
+WinListLength(PyObject *self)
+{
+    win_T	*w;
     PyInt	n = 0;
+
+    if (!(w = get_firstwin((WinListObject *)(self))))
+	return -1;
 
     while (w != NULL)
     {
@@ -1793,11 +2053,14 @@ WinListLength(PyObject *self UNUSED)
 }
 
     static PyObject *
-WinListItem(PyObject *self UNUSED, PyInt n)
+WinListItem(PyObject *self, PyInt n)
 {
     win_T *w;
 
-    for (w = firstwin; w != NULL; w = W_NEXT(w), --n)
+    if (!(w = get_firstwin((WinListObject *)(self))))
+	return NULL;
+
+    for (; w != NULL; w = W_NEXT(w), --n)
 	if (n == 0)
 	    return WindowNew(w);
 
@@ -2521,7 +2784,7 @@ RBAppend(BufferObject *self, PyObject *args, PyInt start, PyInt end, PyInt *new_
 
     if (n < 0 || n > max)
     {
-	PyErr_SetString(PyExc_ValueError, _("line number out of range"));
+	PyErr_SetString(PyExc_IndexError, _("line number out of range"));
 	return NULL;
     }
 
@@ -2849,6 +3112,116 @@ static struct PyMethodDef BufferMethods[] = {
     { NULL,	    NULL,		0,	    NULL }
 };
 
+/*
+ * Buffer list object - Implementation
+ */
+
+static PyTypeObject BufMapType;
+
+typedef struct
+{
+    PyObject_HEAD
+} BufMapObject;
+
+    static PyInt
+BufMapLength(PyObject *self UNUSED)
+{
+    buf_T	*b = firstbuf;
+    PyInt	n = 0;
+
+    while (b)
+    {
+	++n;
+	b = b->b_next;
+    }
+
+    return n;
+}
+
+    static PyObject *
+BufMapItem(PyObject *self UNUSED, PyObject *keyObject)
+{
+    buf_T	*b;
+    int		bnr;
+
+#if PY_MAJOR_VERSION < 3
+    if (PyInt_Check(keyObject))
+	bnr = PyInt_AsLong(keyObject);
+    else
+#endif
+    if (PyLong_Check(keyObject))
+	bnr = PyLong_AsLong(keyObject);
+    else
+    {
+	PyErr_SetString(PyExc_TypeError, _("key must be integer"));
+	return NULL;
+    }
+
+    b = buflist_findnr(bnr);
+
+    if (b)
+	return BufferNew(b);
+    else
+    {
+	PyErr_SetObject(PyExc_KeyError, keyObject);
+	return NULL;
+    }
+}
+
+    static void
+BufMapIterDestruct(PyObject *buffer)
+{
+    /* Iteration was stopped before all buffers were processed */
+    if (buffer)
+    {
+	Py_DECREF(buffer);
+    }
+}
+
+    static PyObject *
+BufMapIterNext(PyObject **buffer)
+{
+    PyObject	*next;
+    PyObject	*r;
+
+    if (!*buffer)
+	return NULL;
+
+    r = *buffer;
+
+    if (CheckBuffer((BufferObject *)(r)))
+    {
+	*buffer = NULL;
+	return NULL;
+    }
+
+    if (!((BufferObject *)(r))->buf->b_next)
+	next = NULL;
+    else if (!(next = BufferNew(((BufferObject *)(r))->buf->b_next)))
+	return NULL;
+    *buffer = next;
+    /* Do not increment reference: we no longer hold it (decref), but whoever on 
+     * other side will hold (incref). Decref+incref = nothing.
+     */
+    return r;
+}
+
+    static PyObject *
+BufMapIter(PyObject *self UNUSED)
+{
+    PyObject *buffer;
+
+    buffer = BufferNew(firstbuf);
+    return IterNew(buffer,
+	    (destructorfun) BufMapIterDestruct, (nextfun) BufMapIterNext);
+}
+
+static PyMappingMethods BufMapAsMapping = {
+    (lenfunc)       BufMapLength,
+    (binaryfunc)    BufMapItem,
+    (objobjargproc) 0,
+};
+
 /* Current items object
  */
 
@@ -2859,12 +3232,15 @@ CurrentGetattr(PyObject *self UNUSED, char *name)
 	return (PyObject *)BufferNew(curbuf);
     else if (strcmp(name, "window") == 0)
 	return (PyObject *)WindowNew(curwin);
+    else if (strcmp(name, "tabpage") == 0)
+	return (PyObject *)TabPageNew(curtab);
     else if (strcmp(name, "line") == 0)
 	return GetBufferLine(curbuf, (PyInt)curwin->w_cursor.lnum);
     else if (strcmp(name, "range") == 0)
 	return RangeNew(curbuf, RangeStart, RangeEnd);
     else if (strcmp(name,"__members__") == 0)
-	return Py_BuildValue("[ssss]", "buffer", "window", "line", "range");
+	return Py_BuildValue("[sssss]", "buffer", "window", "line", "range",
+		"tabpage");
     else
     {
 	PyErr_SetString(PyExc_AttributeError, name);
@@ -2879,6 +3255,80 @@ CurrentSetattr(PyObject *self UNUSED, char *name, PyObject *value)
     {
 	if (SetBufferLine(curbuf, (PyInt)curwin->w_cursor.lnum, value, NULL) == FAIL)
 	    return -1;
+
+	return 0;
+    }
+    else if (strcmp(name, "buffer") == 0)
+    {
+	int count;
+
+	if (value->ob_type != &BufferType)
+	{
+	    PyErr_SetString(PyExc_TypeError, _("expected vim.buffer object"));
+	    return -1;
+	}
+
+	if (CheckBuffer((BufferObject *)(value)))
+	    return -1;
+	count = ((BufferObject *)(value))->buf->b_fnum;
+
+	if (do_buffer(DOBUF_GOTO, DOBUF_FIRST, FORWARD, count, 0) == FAIL)
+	{
+	    PyErr_SetVim(_("failed to switch to given buffer"));
+	    return -1;
+	}
+
+	return 0;
+    }
+    else if (strcmp(name, "window") == 0)
+    {
+	int count;
+
+	if (value->ob_type != &WindowType)
+	{
+	    PyErr_SetString(PyExc_TypeError, _("expected vim.window object"));
+	    return -1;
+	}
+
+	if (CheckWindow((WindowObject *)(value)))
+	    return -1;
+	count = get_win_number(((WindowObject *)(value))->win, firstwin);
+
+	if (!count)
+	{
+	    PyErr_SetString(PyExc_ValueError,
+		    _("failed to find window in the current tab page"));
+	    return -1;
+	}
+
+	win_goto(((WindowObject *)(value))->win);
+	if (((WindowObject *)(value))->win != curwin)
+	{
+	    PyErr_SetString(PyExc_RuntimeError,
+		    _("did not switch to the specified window"));
+	    return -1;
+	}
+
+	return 0;
+    }
+    else if (strcmp(name, "tabpage") == 0)
+    {
+	if (value->ob_type != &TabPageType)
+	{
+	    PyErr_SetString(PyExc_TypeError, _("expected vim.tabpage object"));
+	    return -1;
+	}
+
+	if (CheckTabPage((TabPageObject *)(value)))
+	    return -1;
+
+	goto_tabpage_tp(((TabPageObject *)(value))->tab, TRUE, TRUE);
+	if (((TabPageObject *)(value))->tab != curtab)
+	{
+	    PyErr_SetString(PyExc_RuntimeError,
+		    _("did not switch to the specified tab page"));
+	    return -1;
+	}
 
 	return 0;
     }
@@ -3296,7 +3746,8 @@ _ConvertFromPyObject(PyObject *obj, typval_T *tv, PyObject *lookupDict)
 	return convert_dl(obj, tv, pymap_to_tv, lookupDict);
     else
     {
-	PyErr_SetString(PyExc_TypeError, _("unable to convert to vim structure"));
+	PyErr_SetString(PyExc_TypeError,
+		_("unable to convert to vim structure"));
 	return -1;
     }
     return 0;
@@ -3363,6 +3814,15 @@ init_structs(void)
     OutputType.tp_setattr = OutputSetattr;
 #endif
 
+    vim_memset(&IterType, 0, sizeof(IterType));
+    IterType.tp_name = "vim.iter";
+    IterType.tp_basicsize = sizeof(IterObject);
+    IterType.tp_flags = Py_TPFLAGS_DEFAULT;
+    IterType.tp_doc = "generic iterator object";
+    IterType.tp_iter = IterIter;
+    IterType.tp_iternext = IterNext;
+    IterType.tp_dealloc = IterDestructor;
+
     vim_memset(&BufferType, 0, sizeof(BufferType));
     BufferType.tp_name = "vim.buffer";
     BufferType.tp_basicsize = sizeof(BufferType);
@@ -3401,11 +3861,29 @@ init_structs(void)
     WindowType.tp_setattr = WindowSetattr;
 #endif
 
-    vim_memset(&BufListType, 0, sizeof(BufListType));
-    BufListType.tp_name = "vim.bufferlist";
-    BufListType.tp_basicsize = sizeof(BufListObject);
-    BufListType.tp_as_sequence = &BufListAsSeq;
-    BufListType.tp_flags = Py_TPFLAGS_DEFAULT;
+    vim_memset(&TabPageType, 0, sizeof(TabPageType));
+    TabPageType.tp_name = "vim.tabpage";
+    TabPageType.tp_basicsize = sizeof(TabPageObject);
+    TabPageType.tp_dealloc = TabPageDestructor;
+    TabPageType.tp_repr = TabPageRepr;
+    TabPageType.tp_flags = Py_TPFLAGS_DEFAULT;
+    TabPageType.tp_doc = "vim tab page object";
+    TabPageType.tp_methods = TabPageMethods;
+#if PY_MAJOR_VERSION >= 3
+    TabPageType.tp_getattro = TabPageGetattro;
+    TabPageType.tp_alloc = call_PyType_GenericAlloc;
+    TabPageType.tp_new = call_PyType_GenericNew;
+    TabPageType.tp_free = call_PyObject_Free;
+#else
+    TabPageType.tp_getattr = TabPageGetattr;
+#endif
+
+    vim_memset(&BufMapType, 0, sizeof(BufMapType));
+    BufMapType.tp_name = "vim.bufferlist";
+    BufMapType.tp_basicsize = sizeof(BufMapObject);
+    BufMapType.tp_as_mapping = &BufMapAsMapping;
+    BufMapType.tp_flags = Py_TPFLAGS_DEFAULT;
+    BufMapType.tp_iter = BufMapIter;
     BufferType.tp_doc = "vim buffer list";
 
     vim_memset(&WinListType, 0, sizeof(WinListType));
@@ -3414,6 +3892,14 @@ init_structs(void)
     WinListType.tp_as_sequence = &WinListAsSeq;
     WinListType.tp_flags = Py_TPFLAGS_DEFAULT;
     WinListType.tp_doc = "vim window list";
+    WinListType.tp_dealloc = WinListDestructor;
+
+    vim_memset(&TabListType, 0, sizeof(TabListType));
+    TabListType.tp_name = "vim.tabpagelist";
+    TabListType.tp_basicsize = sizeof(TabListType);
+    TabListType.tp_as_sequence = &TabListAsSeq;
+    TabListType.tp_flags = Py_TPFLAGS_DEFAULT;
+    TabListType.tp_doc = "vim tab page list";
 
     vim_memset(&RangeType, 0, sizeof(RangeType));
     RangeType.tp_name = "vim.range";
@@ -3472,6 +3958,7 @@ init_structs(void)
     ListType.tp_flags = Py_TPFLAGS_DEFAULT;
     ListType.tp_doc = "list pushing modifications to vim structure";
     ListType.tp_methods = ListMethods;
+    ListType.tp_iter = ListIter;
 #if PY_MAJOR_VERSION >= 3
     ListType.tp_getattro = ListGetattro;
     ListType.tp_setattro = ListSetattro;
@@ -3481,7 +3968,7 @@ init_structs(void)
 #endif
 
     vim_memset(&FunctionType, 0, sizeof(FunctionType));
-    FunctionType.tp_name = "vim.list";
+    FunctionType.tp_name = "vim.function";
     FunctionType.tp_basicsize = sizeof(FunctionObject);
     FunctionType.tp_dealloc = FunctionDestructor;
     FunctionType.tp_call = FunctionCall;

@@ -183,38 +183,21 @@ STARTTEST
 :   $put ='[0.0, 0.0]'
 :endif
 :let messages=[]
-:py <<EOF
+py <<EOF
 d=vim.bindeval('{}')
 m=vim.bindeval('messages')
-try:
-    d['abc']
-except Exception as e:
-    m.extend([e.__class__.__name__])
+def em(expr, g=globals(), l=locals()):
+    try:
+        exec(expr, g, l)
+    except:
+        m.extend([sys.exc_type.__name__])
 
-try:
-    d['abc']="\0"
-except Exception as e:
-    m.extend([e.__class__.__name__])
-
-try:
-    d['abc']=vim
-except Exception as e:
-    m.extend([e.__class__.__name__])
-
-try:
-    d['']=1
-except Exception as e:
-    m.extend([e.__class__.__name__])
-
-try:
-    d['a\0b']=1
-except Exception as e:
-    m.extend([e.__class__.__name__])
-
-try:
-    d[b'a\0b']=1
-except Exception as e:
-    m.extend([e.__class__.__name__])
+em('d["abc"]')
+em('d["abc"]="\\0"')
+em('d["abc"]=vim')
+em('d[""]=1')
+em('d["a\\0b"]=1')
+em('d[u"a\\0b"]=1')
 EOF
 :$put =messages
 :unlet messages
@@ -351,6 +334,7 @@ EOF
 :let g:foo = 'bac'
 :let w:abc = 'def'
 :let b:baz = 'bar'
+:let t:bar = 'jkl'
 :try
 :  throw "Abc"
 :catch
@@ -359,6 +343,7 @@ EOF
 :put =pyeval('vim.vars[''foo'']')
 :put =pyeval('vim.current.window.vars[''abc'']')
 :put =pyeval('vim.current.buffer.vars[''baz'']')
+:put =pyeval('vim.current.tabpage.vars[''bar'']')
 :"
 :" Options
 :" paste:          boolean, global
@@ -394,14 +379,14 @@ py << EOF
 def e(s, g=globals(), l=locals()):
     try:
         exec(s, g, l)
-    except Exception as e:
-        vim.command('throw ' + repr(e.__class__.__name__))
+    except:
+        vim.command('throw ' + repr(sys.exc_type.__name__))
 
 def ev(s, g=globals(), l=locals()):
     try:
         return eval(s, g, l)
-    except Exception as e:
-        vim.command('throw ' + repr(e.__class__.__name__))
+    except:
+        vim.command('throw ' + repr(sys.exc_type.__name__))
         return 0
 EOF
 :function E(s)
@@ -477,6 +462,9 @@ EOF
 :   call RecVars(oname)
 :endfor
 :only
+:for buf in g:bufs[1:]
+:   execute 'bwipeout!' buf
+:endfor
 :"
 :" Test buffer object
 :vnew
@@ -519,6 +507,134 @@ for expr in ('b[1]','b[:] = ["A", "B"]','b[:]','b.append("abc")'):
         # Should not happen in any case
         cb.append('No exception for ' + expr)
 EOF
+:"
+:" Test vim.buffers object
+:set hidden
+:edit a
+:buffer #
+:edit b
+:buffer #
+:edit c
+:buffer #
+py << EOF
+# Check GCing iterator that was not fully exhausted
+i = iter(vim.buffers)
+cb.append('i:' + str(next(i)))
+# and also check creating more then one iterator at a time
+i2 = iter(vim.buffers)
+cb.append('i2:' + str(next(i2)))
+cb.append('i:' + str(next(i)))
+# The following should trigger GC and not cause any problems
+del i
+del i2
+i3 = iter(vim.buffers)
+cb.append('i3:' + str(next(i3)))
+del i3
+
+prevnum = 0
+for b in vim.buffers:
+    # Check buffer order
+    if prevnum >= b.number:
+        cb.append('!!! Buffer numbers not in strictly ascending order')
+    # Check indexing: vim.buffers[number].number == number
+    cb.append(str(b.number) + ':' + repr(vim.buffers[b.number]) + '=' + repr(b))
+    prevnum = b.number
+
+cb.append(str(len(vim.buffers)))
+
+bnums = list(map(lambda b: b.number, vim.buffers))[1:]
+
+# Test wiping out buffer with existing iterator
+i4 = iter(vim.buffers)
+cb.append('i4:' + str(next(i4)))
+vim.command('bwipeout! ' + str(bnums.pop(0)))
+try:
+    next(i4)
+except vim.error:
+    pass
+else:
+    cb.append('!!!! No vim.error')
+i4 = iter(vim.buffers)
+vim.command('bwipeout! ' + str(bnums.pop(-1)))
+vim.command('bwipeout! ' + str(bnums.pop(-1)))
+cb.append('i4:' + str(next(i4)))
+try:
+    next(i4)
+except StopIteration:
+    cb.append('StopIteration')
+EOF
+:"
+:" Test vim.{tabpage,window}list and vim.{tabpage,window} objects
+:tabnew 0
+:tabnew 1
+:vnew a.1
+:tabnew 2
+:vnew a.2
+:vnew b.2
+:vnew c.2
+py << EOF
+cb.append('Number of tabs: ' + str(len(vim.tabpages)))
+cb.append('Current tab pages:')
+def W(w):
+    if '(unknown)' in repr(w):
+        return '<window object (unknown)>'
+    else:
+        return repr(w)
+for t in vim.tabpages:
+    cb.append('  ' + repr(t) + '(' + str(t.number) + ')' + ': ' + str(len(t.windows)) + ' windows, current is ' + W(t.window))
+    cb.append('  Windows:')
+    for w in t.windows:
+        cb.append('    ' + W(w) + '(' + str(w.number) + ')' + ': displays buffer ' + repr(w.buffer) + '; cursor is at ' + repr(w.cursor))
+        # Other values depend on the size of the terminal, so they are checked partly:
+        for attr in ('height', 'row', 'width', 'col'):
+            try:
+                aval = getattr(w, attr)
+                if type(aval) is not long:
+                    raise TypeError
+                if aval < 0:
+                    raise ValueError
+            except Exception:
+                cb.append('!!!!!! Error while getting attribute ' + attr + ': ' + sys.exc_type.__name__)
+        w.cursor = (len(w.buffer), 0)
+cb.append('Number of windows in current tab page: ' + str(len(vim.windows)))
+if list(vim.windows) != list(vim.current.tabpage.windows):
+    cb.append('!!!!!! Windows differ')
+EOF
+:"
+:" Test vim.current
+py << EOF
+def H(o):
+    return repr(o)
+cb.append('Current tab page: ' + repr(vim.current.tabpage))
+cb.append('Current window: ' + repr(vim.current.window) + ': ' + H(vim.current.window) + ' is ' + H(vim.current.tabpage.window))
+cb.append('Current buffer: ' + repr(vim.current.buffer) + ': ' + H(vim.current.buffer) + ' is ' + H(vim.current.window.buffer)+ ' is ' + H(vim.current.tabpage.window.buffer))
+# Assigning: fails
+try:
+    vim.current.window = vim.tabpages[0].window
+except ValueError:
+    cb.append('ValueError at assigning foreign tab window')
+
+for attr in ('window', 'tabpage', 'buffer'):
+    try:
+        setattr(vim.current, attr, None)
+    except TypeError:
+        cb.append('Type error at assigning None to vim.current.' + attr)
+
+# Assigning: success
+vim.current.tabpage = vim.tabpages[-2]
+vim.current.buffer = cb
+vim.current.window = vim.windows[0]
+vim.current.window.cursor = (len(vim.current.buffer), 0)
+cb.append('Current tab page: ' + repr(vim.current.tabpage))
+cb.append('Current window: ' + repr(vim.current.window))
+cb.append('Current buffer: ' + repr(vim.current.buffer))
+cb.append('Current line: ' + repr(vim.current.line))
+for b in vim.buffers:
+    if b is not cb:
+        vim.command('bwipeout! ' + b.number)
+EOF
+:tabonly!
+:only!
 :endfun
 :"
 :call Test()
