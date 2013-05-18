@@ -96,7 +96,11 @@
 # define rb_num2int rb_num2int_stub
 #endif
 
-#include <ruby.h>
+#ifdef FEAT_GUI_MACVIM
+# include <Ruby/ruby.h>
+#else
+# include <ruby.h>
+#endif
 #ifdef RUBY19_OR_LATER
 # include <ruby/encoding.h>
 #endif
