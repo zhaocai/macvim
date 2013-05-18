@@ -11235,14 +11235,7 @@ f_getchar(argvars, rettv)
 	rettv->vval.v_string = vim_strsave(temp);
 
 #ifdef FEAT_MOUSE
-	if (is_mouse_key(n)
-# ifdef FEAT_GUI_MACVIM
-		|| n == K_SWIPELEFT
-		|| n == K_SWIPERIGHT
-		|| n == K_SWIPEUP
-		|| n == K_SWIPEDOWN
-# endif
-	   )
+	if (is_mouse_key(n))
 	{
 	    int		row = mouse_row;
 	    int		col = mouse_col;
