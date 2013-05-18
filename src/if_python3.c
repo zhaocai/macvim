@@ -76,7 +76,6 @@ static void init_structs(void);
 #else
 # define CODEC_ERROR_HANDLER NULL
 #endif
-#define DOPY_FUNC "_vim_pydo"
 
 /* Python 3 does not support CObjects, always use Capsules */
 #define PY_USE_CAPSULE
@@ -611,9 +610,6 @@ get_py3_exceptions()
 }
 #endif /* DYNAMIC_PYTHON3 */
 
-static PyObject *BufferNew (buf_T *);
-static PyObject *WindowNew(win_T *);
-static PyObject *LineToString(const char *);
 static PyObject *BufferDir(PyObject *, PyObject *);
 
 static int py3initialised = 0;

@@ -22,6 +22,7 @@ typedef int Py_ssize_t;  /* Python 2.4 and earlier don't have this type. */
 #else
 # define ENC_OPT "latin1"
 #endif
+#define DOPY_FUNC "_vim_pydo"
 
 #define PyErr_SetVim(str) PyErr_SetString(VimError, str)
 
@@ -31,6 +32,9 @@ typedef int Py_ssize_t;  /* Python 2.4 and earlier don't have this type. */
 
 static int ConvertFromPyObject(PyObject *, typval_T *);
 static int _ConvertFromPyObject(PyObject *, typval_T *, PyObject *);
+static PyObject *WindowNew(win_T *, tabpage_T *);
+static PyObject *BufferNew (buf_T *);
+static PyObject *LineToString(const char *);
 
 static PyInt RangeStart;
 static PyInt RangeEnd;
@@ -470,7 +474,7 @@ VimEval(PyObject *self UNUSED, PyObject *args UNUSED)
 static PyObject *ConvertToPyObject(typval_T *);
 
     static PyObject *
-VimEvalPy(PyObject *self UNUSED, PyObject *args UNUSED)
+VimEvalPy(PyObject *self UNUSED, PyObject *args)
 {
     char	*expr;
     typval_T	*our_tv;
@@ -540,10 +544,12 @@ static PyTypeObject IterType;
 
 typedef PyObject *(*nextfun)(void **);
 typedef void (*destructorfun)(void *);
+typedef int (*traversefun)(void *, visitproc, void *);
+typedef int (*clearfun)(void **);
 
-/* Main purpose of this object is removing the need for do python initialization 
- * (i.e. PyType_Ready and setting type attributes) for a big bunch of objects.
- */
+/* Main purpose of this object is removing the need for do python
+ * initialization (i.e. PyType_Ready and setting type attributes) for a big
+ * bunch of objects. */
 
 typedef struct
 {
@@ -551,10 +557,13 @@ typedef struct
     void *cur;
     nextfun next;
     destructorfun destruct;
+    traversefun traverse;
+    clearfun clear;
 } IterObject;
 
     static PyObject *
-IterNew(void *start, destructorfun destruct, nextfun next)
+IterNew(void *start, destructorfun destruct, nextfun next, traversefun traverse,
+	clearfun clear)
 {
     IterObject *self;
 
@@ -562,6 +571,8 @@ IterNew(void *start, destructorfun destruct, nextfun next)
     self->cur = start;
     self->next = next;
     self->destruct = destruct;
+    self->traverse = traverse;
+    self->clear = clear;
 
     return (PyObject *)(self);
 }
@@ -574,6 +585,33 @@ IterDestructor(PyObject *self)
     this->destruct(this->cur);
 
     DESTRUCTOR_FINISH(self);
+}
+
+    static int
+IterTraverse(PyObject *self, visitproc visit, void *arg)
+{
+    IterObject *this = (IterObject *)(self);
+
+    if (this->traverse != NULL)
+	return this->traverse(this->cur, visit, arg);
+    else
+	return 0;
+}
+
+/* Mac OSX defines clear() somewhere. */
+#ifdef clear
+# undef clear
+#endif
+
+    static int
+IterClear(PyObject *self)
+{
+    IterObject *this = (IterObject *)(self);
+
+    if (this->clear != NULL)
+	return this->clear(&this->cur);
+    else
+	return 0;
 }
 
     static PyObject *
@@ -1031,7 +1069,8 @@ ListIter(PyObject *self)
     lii->list = l;
 
     return IterNew(lii,
-	    (destructorfun) ListIterDestruct, (nextfun) ListIterNext);
+	    (destructorfun) ListIterDestruct, (nextfun) ListIterNext,
+	    NULL, NULL);
 }
 
     static int
@@ -1345,6 +1384,53 @@ typedef struct
     PyObject *fromObj;
 } OptionsObject;
 
+    static int
+dummy_check(void *arg UNUSED)
+{
+    return 0;
+}
+
+    static PyObject *
+OptionsNew(int opt_type, void *from, checkfun Check, PyObject *fromObj)
+{
+    OptionsObject	*self;
+
+    self = PyObject_NEW(OptionsObject, &OptionsType);
+    if (self == NULL)
+	return NULL;
+
+    self->opt_type = opt_type;
+    self->from = from;
+    self->Check = Check;
+    self->fromObj = fromObj;
+    if (fromObj)
+	Py_INCREF(fromObj);
+
+    return (PyObject *)(self);
+}
+
+    static void
+OptionsDestructor(PyObject *self)
+{
+    if (((OptionsObject *)(self))->fromObj)
+	Py_DECREF(((OptionsObject *)(self))->fromObj);
+    DESTRUCTOR_FINISH(self);
+}
+
+    static int
+OptionsTraverse(PyObject *self, visitproc visit, void *arg)
+{
+    Py_VISIT(((OptionsObject *)(self))->fromObj);
+    return 0;
+}
+
+    static int
+OptionsClear(PyObject *self)
+{
+    Py_CLEAR(((OptionsObject *)(self))->fromObj);
+    return 0;
+}
+
     static PyObject *
 OptionsItem(OptionsObject *this, PyObject *keyObject)
 {
@@ -1413,14 +1499,14 @@ set_option_value_for(key, numval, stringval, opt_flags, opt_type, from)
 {
     win_T	*save_curwin;
     tabpage_T	*save_curtab;
-    aco_save_T	aco;
+    buf_T	*save_curbuf;
     int		r = 0;
 
     switch (opt_type)
     {
 	case SREQ_WIN:
-	    if (switch_win(&save_curwin, &save_curtab, (win_T *) from, curtab)
-								      == FAIL)
+	    if (switch_win(&save_curwin, &save_curtab, (win_T *)from,
+				     win_find_tabpage((win_T *)from)) == FAIL)
 	    {
 		PyErr_SetVim("Problem while switching windows.");
 		return -1;
@@ -1429,9 +1515,9 @@ set_option_value_for(key, numval, stringval, opt_flags, opt_type, from)
 	    restore_win(save_curwin, save_curtab);
 	    break;
 	case SREQ_BUF:
-	    aucmd_prepbuf(&aco, (buf_T *) from);
+	    switch_buffer(&save_curbuf, (buf_T *)from);
 	    set_option_value(key, numval, stringval, opt_flags);
-	    aucmd_restbuf(&aco);
+	    restore_buffer(save_curbuf);
 	    break;
 	case SREQ_GLOBAL:
 	    set_option_value(key, numval, stringval, opt_flags);
@@ -1559,39 +1645,6 @@ OptionsAssItem(OptionsObject *this, PyObject *keyObject, PyObject *valObject)
     return r;
 }
 
-    static int
-dummy_check(void *arg UNUSED)
-{
-    return 0;
-}
-
-    static PyObject *
-OptionsNew(int opt_type, void *from, checkfun Check, PyObject *fromObj)
-{
-    OptionsObject	*self;
-
-    self = PyObject_NEW(OptionsObject, &OptionsType);
-    if (self == NULL)
-	return NULL;
-
-    self->opt_type = opt_type;
-    self->from = from;
-    self->Check = Check;
-    self->fromObj = fromObj;
-    if (fromObj)
-	Py_INCREF(fromObj);
-
-    return (PyObject *)(self);
-}
-
-    static void
-OptionsDestructor(PyObject *self)
-{
-    if (((OptionsObject *)(self))->fromObj)
-	Py_DECREF(((OptionsObject *)(self))->fromObj);
-    DESTRUCTOR_FINISH(self);
-}
-
 static PyMappingMethods OptionsAsMapping = {
     (lenfunc)       NULL,
     (binaryfunc)    OptionsItem,
@@ -1670,9 +1723,9 @@ TabPageAttr(TabPageObject *this, char *name)
 	/* For current tab window.c does not bother to set or update tp_curwin
 	 */
 	if (this->tab == curtab)
-	    return WindowNew(curwin);
+	    return WindowNew(curwin, curtab);
 	else
-	    return WindowNew(this->tab->tp_curwin);
+	    return WindowNew(this->tab->tp_curwin, this->tab);
     }
     return NULL;
 }
@@ -1754,6 +1807,7 @@ typedef struct
 {
     PyObject_HEAD
     win_T	*win;
+    TabPageObject	*tabObject;
 } WindowObject;
 
 static PyTypeObject WindowType;
@@ -1771,7 +1825,7 @@ CheckWindow(WindowObject *this)
 }
 
     static PyObject *
-WindowNew(win_T *win)
+WindowNew(win_T *win, tabpage_T *tab)
 {
     /* We need to handle deletion of windows underneath us.
      * If we add a "w_python*_ref" field to the win_T structure,
@@ -1804,6 +1858,8 @@ WindowNew(win_T *win)
 	WIN_PYTHON_REF(win) = self;
     }
 
+    self->tabObject = ((TabPageObject *)(TabPageNew(tab)));
+
     return (PyObject *)(self);
 }
 
@@ -1815,7 +1871,40 @@ WindowDestructor(PyObject *self)
     if (this->win && this->win != INVALID_WINDOW_VALUE)
 	WIN_PYTHON_REF(this->win) = NULL;
 
+    Py_DECREF(((PyObject *)(this->tabObject)));
+
     DESTRUCTOR_FINISH(self);
+}
+
+    static win_T *
+get_firstwin(TabPageObject *tabObject)
+{
+    if (tabObject)
+    {
+	if (CheckTabPage(tabObject))
+	    return NULL;
+	/* For current tab window.c does not bother to set or update tp_firstwin
+	 */
+	else if (tabObject->tab == curtab)
+	    return firstwin;
+	else
+	    return tabObject->tab->tp_firstwin;
+    }
+    else
+	return firstwin;
+}
+    static int
+WindowTraverse(PyObject *self, visitproc visit, void *arg)
+{
+    Py_VISIT(((PyObject *)(((WindowObject *)(self))->tabObject)));
+    return 0;
+}
+
+    static int
+WindowClear(PyObject *self)
+{
+    Py_CLEAR((((WindowObject *)(self))->tabObject));
+    return 0;
 }
 
     static PyObject *
@@ -1847,10 +1936,20 @@ WindowAttr(WindowObject *this, char *name)
 	return OptionsNew(SREQ_WIN, this->win, (checkfun) CheckWindow,
 			(PyObject *) this);
     else if (strcmp(name, "number") == 0)
-	return PyLong_FromLong((long) get_win_number(this->win, firstwin));
+    {
+	if (CheckTabPage(this->tabObject))
+	    return NULL;
+	return PyLong_FromLong((long)
+		get_win_number(this->win, get_firstwin(this->tabObject)));
+    }
+    else if (strcmp(name, "tabpage") == 0)
+    {
+	Py_INCREF(this->tabObject);
+	return (PyObject *)(this->tabObject);
+    }
     else if (strcmp(name,"__members__") == 0)
-	return Py_BuildValue("[ssssssss]", "buffer", "cursor", "height", "vars",
-		"options", "number", "row", "col");
+	return Py_BuildValue("[sssssssss]", "buffer", "cursor", "height",
+		"vars", "options", "number", "row", "col", "tabpage");
     else
 	return NULL;
 }
@@ -2016,31 +2115,13 @@ WinListDestructor(PyObject *self)
     DESTRUCTOR_FINISH(self);
 }
 
-    static win_T *
-get_firstwin(WinListObject *this)
-{
-    if (this->tabObject)
-    {
-	if (CheckTabPage(this->tabObject))
-	    return NULL;
-	/* For current tab window.c does not bother to set or update tp_firstwin
-	 */
-	else if (this->tabObject->tab == curtab)
-	    return firstwin;
-	else
-	    return this->tabObject->tab->tp_firstwin;
-    }
-    else
-	return firstwin;
-}
-
     static PyInt
 WinListLength(PyObject *self)
 {
     win_T	*w;
     PyInt	n = 0;
 
-    if (!(w = get_firstwin((WinListObject *)(self))))
+    if (!(w = get_firstwin(((WinListObject *)(self))->tabObject)))
 	return -1;
 
     while (w != NULL)
@@ -2055,14 +2136,15 @@ WinListLength(PyObject *self)
     static PyObject *
 WinListItem(PyObject *self, PyInt n)
 {
+    WinListObject	*this = ((WinListObject *)(self));
     win_T *w;
 
-    if (!(w = get_firstwin((WinListObject *)(self))))
+    if (!(w = get_firstwin(this->tabObject)))
 	return NULL;
 
     for (; w != NULL; w = W_NEXT(w), --n)
 	if (n == 0)
-	    return WindowNew(w);
+	    return WindowNew(w, this->tabObject? this->tabObject->tab: curtab);
 
     PyErr_SetString(PyExc_IndexError, _("no such window"));
     return NULL;
@@ -2240,10 +2322,10 @@ SetBufferLine(buf_T *buf, PyInt n, PyObject *line, PyInt *len_change)
      */
     if (line == Py_None || line == NULL)
     {
-	buf_T *savebuf = curbuf;
+	buf_T *savebuf;
 
 	PyErr_Clear();
-	curbuf = buf;
+	switch_buffer(&savebuf, buf);
 
 	if (u_savedel((linenr_T)n, 1L) == FAIL)
 	    PyErr_SetVim(_("cannot save undo information"));
@@ -2251,12 +2333,12 @@ SetBufferLine(buf_T *buf, PyInt n, PyObject *line, PyInt *len_change)
 	    PyErr_SetVim(_("cannot delete line"));
 	else
 	{
-	    if (buf == curwin->w_buffer)
+	    if (buf == savebuf)
 		py_fix_cursor((linenr_T)n, (linenr_T)n + 1, (linenr_T)-1);
 	    deleted_lines_mark((linenr_T)n, 1L);
 	}
 
-	curbuf = savebuf;
+	restore_buffer(savebuf);
 
 	if (PyErr_Occurred() || VimErrorCheck())
 	    return FAIL;
@@ -2269,14 +2351,14 @@ SetBufferLine(buf_T *buf, PyInt n, PyObject *line, PyInt *len_change)
     else if (PyString_Check(line))
     {
 	char *save = StringToLine(line);
-	buf_T *savebuf = curbuf;
+	buf_T *savebuf;
 
 	if (save == NULL)
 	    return FAIL;
 
 	/* We do not need to free "save" if ml_replace() consumes it. */
 	PyErr_Clear();
-	curbuf = buf;
+	switch_buffer(&savebuf, buf);
 
 	if (u_savesub((linenr_T)n) == FAIL)
 	{
@@ -2291,10 +2373,10 @@ SetBufferLine(buf_T *buf, PyInt n, PyObject *line, PyInt *len_change)
 	else
 	    changed_bytes((linenr_T)n, 0);
 
-	curbuf = savebuf;
+	restore_buffer(savebuf);
 
 	/* Check that the cursor is not beyond the end of the line now. */
-	if (buf == curwin->w_buffer)
+	if (buf == savebuf)
 	    check_cursor_col();
 
 	if (PyErr_Occurred() || VimErrorCheck())
@@ -2333,10 +2415,10 @@ SetBufferLineList(buf_T *buf, PyInt lo, PyInt hi, PyObject *list, PyInt *len_cha
     {
 	PyInt	i;
 	PyInt	n = (int)(hi - lo);
-	buf_T	*savebuf = curbuf;
+	buf_T	*savebuf;
 
 	PyErr_Clear();
-	curbuf = buf;
+	switch_buffer(&savebuf, buf);
 
 	if (u_savedel((linenr_T)lo, (long)n) == FAIL)
 	    PyErr_SetVim(_("cannot save undo information"));
@@ -2350,12 +2432,12 @@ SetBufferLineList(buf_T *buf, PyInt lo, PyInt hi, PyObject *list, PyInt *len_cha
 		    break;
 		}
 	    }
-	    if (buf == curwin->w_buffer)
+	    if (buf == savebuf)
 		py_fix_cursor((linenr_T)lo, (linenr_T)hi, (linenr_T)-n);
 	    deleted_lines_mark((linenr_T)lo, (long)i);
 	}
 
-	curbuf = savebuf;
+	restore_buffer(savebuf);
 
 	if (PyErr_Occurred() || VimErrorCheck())
 	    return FAIL;
@@ -2400,10 +2482,10 @@ SetBufferLineList(buf_T *buf, PyInt lo, PyInt hi, PyObject *list, PyInt *len_cha
 	    }
 	}
 
-	savebuf = curbuf;
-
 	PyErr_Clear();
-	curbuf = buf;
+
+	// START of region without "return".  Must call restore_buffer()!
+	switch_buffer(&savebuf, buf);
 
 	if (u_save((linenr_T)(lo-1), (linenr_T)hi) == FAIL)
 	    PyErr_SetVim(_("cannot save undo information"));
@@ -2480,10 +2562,11 @@ SetBufferLineList(buf_T *buf, PyInt lo, PyInt hi, PyObject *list, PyInt *len_cha
 						  (long)MAXLNUM, (long)extra);
 	changed_lines((linenr_T)lo, 0, (linenr_T)hi, (long)extra);
 
-	if (buf == curwin->w_buffer)
+	if (buf == savebuf)
 	    py_fix_cursor((linenr_T)lo, (linenr_T)hi, (linenr_T)extra);
 
-	curbuf = savebuf;
+	// END of region without "return".
+	restore_buffer(savebuf);
 
 	if (PyErr_Occurred() || VimErrorCheck())
 	    return FAIL;
@@ -2522,10 +2605,8 @@ InsertBufferLines(buf_T *buf, PyInt n, PyObject *lines, PyInt *len_change)
 	if (str == NULL)
 	    return FAIL;
 
-	savebuf = curbuf;
-
 	PyErr_Clear();
-	curbuf = buf;
+	switch_buffer(&savebuf, buf);
 
 	if (u_save((linenr_T)n, (linenr_T)(n+1)) == FAIL)
 	    PyErr_SetVim(_("cannot save undo information"));
@@ -2535,7 +2616,7 @@ InsertBufferLines(buf_T *buf, PyInt n, PyObject *lines, PyInt *len_change)
 	    appended_lines_mark((linenr_T)n, 1L);
 
 	vim_free(str);
-	curbuf = savebuf;
+	restore_buffer(savebuf);
 	update_screen(VALID);
 
 	if (PyErr_Occurred() || VimErrorCheck())
@@ -2574,10 +2655,8 @@ InsertBufferLines(buf_T *buf, PyInt n, PyObject *lines, PyInt *len_change)
 	    }
 	}
 
-	savebuf = curbuf;
-
 	PyErr_Clear();
-	curbuf = buf;
+	switch_buffer(&savebuf, buf);
 
 	if (u_save((linenr_T)n, (linenr_T)(n + 1)) == FAIL)
 	    PyErr_SetVim(_("cannot save undo information"));
@@ -2607,7 +2686,7 @@ InsertBufferLines(buf_T *buf, PyInt n, PyObject *lines, PyInt *len_change)
 	 */
 	vim_free(array);
 
-	curbuf = savebuf;
+	restore_buffer(savebuf);
 	update_screen(VALID);
 
 	if (PyErr_Occurred() || VimErrorCheck())
@@ -3023,7 +3102,7 @@ BufferMark(PyObject *self, PyObject *args)
     pos_T	*posp;
     char	*pmark;
     char	mark;
-    buf_T	*curbuf_save;
+    buf_T	*savebuf;
 
     if (CheckBuffer((BufferObject *)(self)))
 	return NULL;
@@ -3032,10 +3111,9 @@ BufferMark(PyObject *self, PyObject *args)
 	return NULL;
     mark = *pmark;
 
-    curbuf_save = curbuf;
-    curbuf = ((BufferObject *)(self))->buf;
+    switch_buffer(&savebuf, ((BufferObject *)(self))->buf);
     posp = getmark(mark, FALSE);
-    curbuf = curbuf_save;
+    restore_buffer(savebuf);
 
     if (posp == NULL)
     {
@@ -3178,6 +3256,20 @@ BufMapIterDestruct(PyObject *buffer)
     }
 }
 
+    static int
+BufMapIterTraverse(PyObject *buffer, visitproc visit, void *arg)
+{
+    Py_VISIT(buffer);
+    return 0;
+}
+
+    static int
+BufMapIterClear(PyObject **buffer)
+{
+    Py_CLEAR(*buffer);
+    return 0;
+}
+
     static PyObject *
 BufMapIterNext(PyObject **buffer)
 {
@@ -3200,9 +3292,8 @@ BufMapIterNext(PyObject **buffer)
     else if (!(next = BufferNew(((BufferObject *)(r))->buf->b_next)))
 	return NULL;
     *buffer = next;
-    /* Do not increment reference: we no longer hold it (decref), but whoever on 
-     * other side will hold (incref). Decref+incref = nothing.
-     */
+    /* Do not increment reference: we no longer hold it (decref), but whoever
+     * on other side will hold (incref). Decref+incref = nothing. */
     return r;
 }
 
@@ -3213,7 +3304,8 @@ BufMapIter(PyObject *self UNUSED)
 
     buffer = BufferNew(firstbuf);
     return IterNew(buffer,
-	    (destructorfun) BufMapIterDestruct, (nextfun) BufMapIterNext);
+	    (destructorfun) BufMapIterDestruct, (nextfun) BufMapIterNext,
+	    (traversefun) BufMapIterTraverse, (clearfun) BufMapIterClear);
 }
 
 static PyMappingMethods BufMapAsMapping = {
@@ -3231,7 +3323,7 @@ CurrentGetattr(PyObject *self UNUSED, char *name)
     if (strcmp(name, "buffer") == 0)
 	return (PyObject *)BufferNew(curbuf);
     else if (strcmp(name, "window") == 0)
-	return (PyObject *)WindowNew(curwin);
+	return (PyObject *)WindowNew(curwin, curtab);
     else if (strcmp(name, "tabpage") == 0)
 	return (PyObject *)TabPageNew(curtab);
     else if (strcmp(name, "line") == 0)
@@ -3822,6 +3914,8 @@ init_structs(void)
     IterType.tp_iter = IterIter;
     IterType.tp_iternext = IterNext;
     IterType.tp_dealloc = IterDestructor;
+    IterType.tp_traverse = IterTraverse;
+    IterType.tp_clear = IterClear;
 
     vim_memset(&BufferType, 0, sizeof(BufferType));
     BufferType.tp_name = "vim.buffer";
@@ -3850,6 +3944,8 @@ init_structs(void)
     WindowType.tp_flags = Py_TPFLAGS_DEFAULT;
     WindowType.tp_doc = "vim Window object";
     WindowType.tp_methods = WindowMethods;
+    WindowType.tp_traverse = WindowTraverse;
+    WindowType.tp_clear = WindowClear;
 #if PY_MAJOR_VERSION >= 3
     WindowType.tp_getattro = WindowGetattro;
     WindowType.tp_setattro = WindowSetattro;
@@ -3988,6 +4084,8 @@ init_structs(void)
     OptionsType.tp_doc = "object for manipulating options";
     OptionsType.tp_as_mapping = &OptionsAsMapping;
     OptionsType.tp_dealloc = OptionsDestructor;
+    OptionsType.tp_traverse = OptionsTraverse;
+    OptionsType.tp_clear = OptionsClear;
 
 #if PY_MAJOR_VERSION >= 3
     vim_memset(&vimmodule, 0, sizeof(vimmodule));
