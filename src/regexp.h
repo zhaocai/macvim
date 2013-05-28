@@ -86,6 +86,8 @@ typedef struct
 
     regprog_T		regprog;
     nfa_state_T		*start;
+    int			has_zend;	/* pattern contains \ze */
+    int			nsubexp;	/* number of () */
     int			nstate;
     nfa_state_T		state[0];	/* actually longer.. */
 } nfa_regprog_T;
