@@ -23,8 +23,8 @@ STARTTEST
 :call add(tl, [2, 'ab', 'aab', 'ab'])
 :call add(tl, [2, 'b', 'abcdef', 'b'])
 :call add(tl, [2, 'bc*', 'abccccdef', 'bcccc'])
-:call add(tl, [0, 'bc\{-}', 'abccccdef', 'b'])
-:call add(tl, [0, 'bc\{-}\(d\)', 'abccccdef', 'bccccd', 'd'])
+:call add(tl, [2, 'bc\{-}', 'abccccdef', 'b'])
+:call add(tl, [2, 'bc\{-}\(d\)', 'abccccdef', 'bccccd', 'd'])
 :call add(tl, [2, 'bc*', 'abbdef', 'b'])
 :call add(tl, [2, 'c*', 'ccc', 'ccc'])
 :call add(tl, [2, 'bc*', 'abdef', 'b'])
@@ -182,10 +182,16 @@ STARTTEST
 :call add(tl, [2, 'a\{0,}', 'oij sdigfusnf', ''])
 :call add(tl, [2, 'a\{0,}', 'aaaaa aa', 'aaaaa'])
 :call add(tl, [2, 'a\{2,}', 'sdfiougjdsafg'])
-:call add(tl, [0, 'a\{2,}', 'aaaaasfoij ', 'aaaaa'])
+:call add(tl, [2, 'a\{2,}', 'aaaaasfoij ', 'aaaaa'])
+:call add(tl, [2, 'a\{5,}', 'xxaaaaxxx '])
+:call add(tl, [2, 'a\{5,}', 'xxaaaaaxxx ', 'aaaaa'])
 :call add(tl, [2, 'a\{,0}', 'oidfguih iuhi hiu aaaa', ''])
 :call add(tl, [2, 'a\{,5}', 'abcd', 'a'])
 :call add(tl, [2, 'a\{,5}', 'aaaaaaaaaa', 'aaaaa'])
+:" leading star as normal char when \{} follows
+:call add(tl, [2, '^*\{4,}$', '***'])
+:call add(tl, [2, '^*\{4,}$', '****', '****'])
+:call add(tl, [2, '^*\{4,}$', '*****', '*****'])
 :" same thing as 'a*'
 :call add(tl, [2, 'a\{}', 'bbbcddiuhfcd', ''])
 :call add(tl, [2, 'a\{}', 'aaaaioudfh coisf jda', 'aaaa'])
@@ -199,16 +205,16 @@ STARTTEST
 :call add(tl, [2, 'a\{-0}', 'asoiuj', ''])
 :call add(tl, [2, 'a\{-2}', 'aaaa', 'aa'])
 :call add(tl, [2, 'a\{-2}', 'abcdefghijklmnopqrestuvwxyz1234567890'])
-:call add(tl, [0, 'a\{-0,}', 'oij sdigfusnf', ''])
-:call add(tl, [0, 'a\{-0,}', 'aaaaa aa', ''])
+:call add(tl, [2, 'a\{-0,}', 'oij sdigfusnf', ''])
+:call add(tl, [2, 'a\{-0,}', 'aaaaa aa', ''])
 :call add(tl, [2, 'a\{-2,}', 'sdfiougjdsafg'])
-:call add(tl, [0, 'a\{-2,}', 'aaaaasfoij ', 'aa'])
+:call add(tl, [2, 'a\{-2,}', 'aaaaasfoij ', 'aa'])
 :call add(tl, [2, 'a\{-,0}', 'oidfguih iuhi hiu aaaa', ''])
 :call add(tl, [2, 'a\{-,5}', 'abcd', ''])
 :call add(tl, [2, 'a\{-,5}', 'aaaaaaaaaa', ''])
 :" anti-greedy version of 'a*'
-:call add(tl, [0, 'a\{-}', 'bbbcddiuhfcd', ''])
-:call add(tl, [0, 'a\{-}', 'aaaaioudfh coisf jda', ''])
+:call add(tl, [2, 'a\{-}', 'bbbcddiuhfcd', ''])
+:call add(tl, [2, 'a\{-}', 'aaaaioudfh coisf jda', ''])
 :"
 :" Test groups of characters and submatches
 :call add(tl, [2, '\(abc\)*', 'abcabcabc', 'abcabcabc', 'abc'])
@@ -225,7 +231,9 @@ STARTTEST
 :"
 :" Test greedy-ness and lazy-ness
 :call add(tl, [2, 'a\{-2,7}','aaaaaaaaaaaaa', 'aa'])
+:call add(tl, [2, 'a\{-2,7}x','aaaaaaaaax', 'aaaaaaax'])
 :call add(tl, [2, 'a\{2,7}','aaaaaaaaaaaaaaaaaaaa', 'aaaaaaa'])
+:call add(tl, [2, 'a\{2,7}x','aaaaaaaaax', 'aaaaaaax'])
 :call add(tl, [2, '\vx(.{-,8})yz(.*)','xayxayzxayzxayz','xayxayzxayzxayz','ayxa','xayzxayz'])
 :call add(tl, [2, '\vx(.*)yz(.*)','xayxayzxayzxayz','xayxayzxayzxayz', 'ayxayzxayzxa',''])
 :call add(tl, [2, '\v(a{1,2}){-2,3}','aaaaaaa','aaaa','aa'])
@@ -266,7 +274,17 @@ STARTTEST
 :call add(tl, [2, '\_[0-9]\+', "asfi\n9888u", "\n9888"])
 :call add(tl, [2, '\_f', "  \na ", "\n"])
 :call add(tl, [2, '\_f\+', "  \na ", "\na"])
+:call add(tl, [2, '[0-9A-Za-z-_.]\+', " @0_a.A-{ ", "0_a.A-"])
 :"
+:"""" Test start/end of line, start/end of file
+:call add(tl, [2, '^a.', "a_\nb ", "a_"])
+:call add(tl, [2, '^a.', "b a \na_"])
+:call add(tl, [2, '.a$', " a\n "])
+:call add(tl, [2, '.a$', " a b\n_a", "_a"])
+:call add(tl, [2, '\%^a.', "a a\na", "a "])
+:call add(tl, [2, '\%^a', " a \na "])
+:call add(tl, [2, '.a\%$', " a\n "])
+:call add(tl, [2, '.a\%$', " a\n_a", "_a"])
 :"
 :"""" Test recognition of some character classes
 :call add(tl, [2, '[0-9]', '8', '8'])
@@ -294,22 +312,30 @@ STARTTEST
 :call add(tl, [2, '\v(a \zsif .*){2}', 'a if then a if last', 'if last', 'a if last'])
 :call add(tl, [2, '\>\zs.', 'aword. ', '.'])
 :"
-:"""" Tests for \@ features
-:call add(tl, [0, 'abc\@=', 'abc', 'ab'])
-:call add(tl, [0, 'abc\@=cd', 'abcd', 'abcd'])
-:call add(tl, [0, 'abc\@=', 'ababc', 'ab'])
+:"""" Tests for \@= and \& features
+:call add(tl, [2, 'abc\@=', 'abc', 'ab'])
+:call add(tl, [2, 'abc\@=cd', 'abcd', 'abcd'])
+:call add(tl, [2, 'abc\@=', 'ababc', 'ab'])
 :" will never match, no matter the input text
 :call add(tl, [2, 'abcd\@=e', 'abcd'])
 :" will never match
 :call add(tl, [2, 'abcd\@=e', 'any text in here ... '])
-:call add(tl, [0, '\v(abc)@=..', 'xabcd', 'ab', 'abc'])
-:" no match
+:call add(tl, [2, '\v(abc)@=..', 'xabcd', 'ab', 'abc'])
 :call add(tl, [2, '\(.*John\)\@=.*Bob', 'here is John, and here is B'])
-:call add(tl, [0, '\(John.*\)\@=.*Bob', 'John is Bobs friend', 'John is Bob', 'John is Bobs friend'])
-:" no match
+:call add(tl, [2, '\(John.*\)\@=.*Bob', 'John is Bobs friend', 'John is Bob', 'John is Bobs friend'])
+:call add(tl, [2, '\<\S\+\())\)\@=', '$((i=i+1))', 'i=i+1', '))'])
 :call add(tl, [2, '.*John\&.*Bob', 'here is John, and here is B'])
-:call add(tl, [0, '.*John\&.*Bob', 'John is Bobs friend', 'John is Bob'])
-:call add(tl, [0, '\v(test1)@=.*yep', 'this is a test1, yep it is', 'test1, yep', 'test1'])
+:call add(tl, [2, '.*John\&.*Bob', 'John is Bobs friend', 'John is Bob'])
+:call add(tl, [2, '\v(test1)@=.*yep', 'this is a test1, yep it is', 'test1, yep', 'test1'])
+:call add(tl, [2, 'foo\(bar\)\@!', 'foobar'])
+:call add(tl, [2, 'foo\(bar\)\@!', 'foo bar', 'foo'])
+:call add(tl, [2, 'if \(\(then\)\@!.\)*$', ' if then else'])
+:call add(tl, [2, 'if \(\(then\)\@!.\)*$', ' if else ', 'if else ', ' '])
+:call add(tl, [2, '\(foo\)\@!bar', 'foobar', 'bar'])
+:call add(tl, [2, '\(foo\)\@!...bar', 'foobar'])
+:call add(tl, [2, '^\%(.*bar\)\@!.*\zsfoo', ' bar foo '])
+:call add(tl, [2, '^\%(.*bar\)\@!.*\zsfoo', ' foo bar '])
+:call add(tl, [2, '^\%(.*bar\)\@!.*\zsfoo', ' foo xxx ', 'foo'])
 :"
 :"""" Combining different tests and features
 :call add(tl, [2, '[[:alpha:]]\{-2,6}', '787abcdiuhsasiuhb4', 'ab'])
@@ -326,6 +352,19 @@ STARTTEST
 :call add(tl, [2, '\%u0020', 'yes no', ' '])
 :call add(tl, [2, '\%U00000020', 'yes no', ' '])
 :"
+:""""" \%[abc]
+:call add(tl, [2, 'foo\%[bar]', 'fobar'])
+:call add(tl, [2, 'foo\%[bar]', 'foobar', 'foobar'])
+:call add(tl, [2, 'foo\%[bar]', 'fooxx', 'foo'])
+:call add(tl, [2, 'foo\%[bar]', 'foobxx', 'foob'])
+:call add(tl, [2, 'foo\%[bar]', 'foobaxx', 'fooba'])
+:call add(tl, [2, 'foo\%[bar]', 'foobarxx', 'foobar'])
+:call add(tl, [2, 'foo\%[bar]x', 'foobxx', 'foobx'])
+:call add(tl, [2, 'foo\%[bar]x', 'foobarxx', 'foobarx'])
+:call add(tl, [2, '\%[bar]x', 'barxx', 'barx'])
+:call add(tl, [2, '\%[bar]x', 'bxx', 'bx'])
+:call add(tl, [2, '\%[bar]x', 'xxx', 'x'])
+:"
 :"""" Alternatives, must use first longest match
 :call add(tl, [2, 'goo\|go', 'google', 'goo'])
 :call add(tl, [2, '\<goo\|\<go', 'google', 'goo'])
@@ -333,20 +372,31 @@ STARTTEST
 :"
 :"""" Back references
 :call add(tl, [2, '\(\i\+\) \1', ' abc abc', 'abc abc', 'abc'])
-:"call add(tl, [2, '\(\i\+\) \1', 'xgoo goox', 'goo goo', 'goo'])
+:call add(tl, [2, '\(\i\+\) \1', 'xgoo goox', 'goo goo', 'goo'])
 :call add(tl, [2, '\(a\)\(b\)\(c\)\(dd\)\(e\)\(f\)\(g\)\(h\)\(i\)\1\2\3\4\5\6\7\8\9', 'xabcddefghiabcddefghix', 'abcddefghiabcddefghi', 'a', 'b', 'c', 'dd', 'e', 'f', 'g', 'h', 'i'])
+:call add(tl, [2, '\(\d*\)a \1b', ' a b ', 'a b', ''])
 :"
 :"""" Look-behind with limit
-:call add(tl, [0, '<\@<=span.', 'xxspanxx<spanyyy', 'spany'])
-:call add(tl, [0, '<\@1<=span.', 'xxspanxx<spanyyy', 'spany'])
-:call add(tl, [0, '<\@2<=span.', 'xxspanxx<spanyyy', 'spany'])
-:call add(tl, [0, '\(<<\)\@<=span.', 'xxspanxxxx<spanxx<<spanyyy', 'spany', '<<'])
-:call add(tl, [0, '\(<<\)\@1<=span.', 'xxspanxxxx<spanxx<<spanyyy'])
-:call add(tl, [0, '\(<<\)\@2<=span.', 'xxspanxxxx<spanxx<<spanyyy', 'spany', '<<'])
+:call add(tl, [2, '<\@<=span.', 'xxspanxx<spanyyy', 'spany'])
+:call add(tl, [2, '<\@1<=span.', 'xxspanxx<spanyyy', 'spany'])
+:call add(tl, [2, '<\@2<=span.', 'xxspanxx<spanyyy', 'spany'])
+:call add(tl, [2, '\(<<\)\@<=span.', 'xxspanxxxx<spanxx<<spanyyy', 'spany', '<<'])
+:call add(tl, [2, '\(<<\)\@1<=span.', 'xxspanxxxx<spanxx<<spanyyy'])
+:call add(tl, [2, '\(<<\)\@2<=span.', 'xxspanxxxx<spanxx<<spanyyy', 'spany', '<<'])
+:call add(tl, [2, '\(foo\)\@<!bar.', 'xx foobar1 xbar2 xx', 'bar2'])
+:"
+:""""" \@>
+:call add(tl, [2, '\(a*\)\@>a', 'aaaa'])
+:call add(tl, [2, '\(a*\)\@>b', 'aaab', 'aaab', 'aaa'])
+:" TODO: BT engine does not restore submatch after failure
+:call add(tl, [1, '\(a*\)\@>a\|a\+', 'aaaa', 'aaaa'])
 :"
 :"""" "\_" prepended negated collection matches EOL
 :call add(tl, [2, '\_[^8-9]\+', "asfi\n9888", "asfi\n"])
 :call add(tl, [2, '\_[^a]\+', "asfi\n9888", "sfi\n9888"])
+:"
+:"""" Requiring lots of states.
+:call add(tl, [2, '[0-9a-zA-Z]\{8}-\([0-9a-zA-Z]\{4}-\)\{3}[0-9a-zA-Z]\{12}', " 12345678-1234-1234-1234-123456789012 ", "12345678-1234-1234-1234-123456789012", "1234-"])
 :"
 :"
 :"""" Run the tests
@@ -357,11 +407,15 @@ STARTTEST
 :  let text = t[2]
 :  let matchidx = 3
 :  for engine in [0, 1, 2]
-:    if engine == 2 && !re
+:    if engine == 2 && re == 0 || engine == 1 && re ==1
 :      continue
 :    endif
 :    let &regexpengine = engine
-:    let l = matchlist(text, pat)
+:    try
+:      let l = matchlist(text, pat)
+:    catch
+:      $put ='ERROR: pat: \"' . pat . '\", text: \"' . text . '\", caused an exception: \"' . v:exception . '\"'
+:    endtry
 :" check the match itself
 :    if len(l) == 0 && len(t) > matchidx
 :      $put ='ERROR: pat: \"' . pat . '\", text: \"' . text . '\", did not match, expected: \"' . t[matchidx] . '\"'
@@ -423,6 +477,21 @@ y$Gop:"
 :.yank
 Gop:"
 :"
+:" Check matching Visual area
+/^Visual:
+jfxvfx:s/\%Ve/E/g
+jV:s/\%Va/A/g
+jfxfxj:s/\%Vo/O/g
+:/^Visual/+1,/^Visual/+4yank
+Gop:"
+:"
+:" Check matching marks
+/^Marks:
+jfSmsfEme:.-4,.+6s/.\%>'s.*\%<'e../here/
+jfSmsj0fEme:.-4,.+6s/.\%>'s\_.*\%<'e../again/
+:/^Marks:/+1,/^Marks:/+3yank
+Gop:"
+:"
 :" Check patterns matching cursor position.
 :func! Postest()
  new
@@ -451,6 +520,15 @@ o-2-:set re=2
 :call Postest()
 :put
 :"
+:" start and end of buffer
+/\%^
+yeGop:"
+50%/\%^..
+yeGopA END:"
+50%/\%$
+"ayb20gg/..\%$
+"bybGo"apo"bp:"
+:"
 :/\%#=1^Results/,$wq! test.out
 ENDTEST
 
@@ -472,8 +550,19 @@ Behind:
 asdfasd<yyy
 xxstart1
 asdfasd<yy
-xxxxstart2
+xxxstart2
 asdfasd<yy
-xxxstart3
+xxstart3
+
+Visual:
+thexe the thexethe
+andaxand andaxand
+oooxofor foroxooo
+oooxofor foroxooo
+
+Marks:
+asdfSasdfsadfEasdf
+asdfSas
+dfsadfEasdf
 
 Results of test64:

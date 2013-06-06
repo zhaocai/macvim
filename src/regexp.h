@@ -55,7 +55,9 @@ typedef struct
     char_u		reganch;
     char_u		*regmust;
     int			regmlen;
+#ifdef FEAT_SYN_HL
     char_u		reghasz;
+#endif
     char_u		program[1];	/* actually longer.. */
 } bt_regprog_T;
 
@@ -70,7 +72,7 @@ struct nfa_state
     nfa_state_T		*out;
     nfa_state_T		*out1;
     int			id;
-    int			lastlist;
+    int			lastlist[2]; /* 0: normal, 1: recursive */
     int			negated;
     int			val;
 };
@@ -84,9 +86,19 @@ typedef struct
     regengine_T		*engine;
     unsigned		regflags;
 
-    regprog_T		regprog;
-    nfa_state_T		*start;
+    nfa_state_T		*start;		/* points into state[] */
+
+    int			reganch;	/* pattern starts with ^ */
+    int			regstart;	/* char at start of pattern */
+
     int			has_zend;	/* pattern contains \ze */
+    int			has_backref;	/* pattern contains \1 .. \9 */
+#ifdef FEAT_SYN_HL
+    int			reghasz;
+#endif
+#ifdef DEBUG
+    char_u		*pattern;
+#endif
     int			nsubexp;	/* number of () */
     int			nstate;
     nfa_state_T		state[0];	/* actually longer.. */

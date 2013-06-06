@@ -26,30 +26,12 @@ typedef int Py_ssize_t;  /* Python 2.4 and earlier don't have this type. */
 
 #define PyErr_SetVim(str) PyErr_SetString(VimError, str)
 
+#define RAISE_NO_EMPTY_KEYS PyErr_SetString(PyExc_ValueError, \
+						_("empty keys are not allowed"))
+
 #define INVALID_BUFFER_VALUE ((buf_T *)(-1))
 #define INVALID_WINDOW_VALUE ((win_T *)(-1))
 #define INVALID_TABPAGE_VALUE ((tabpage_T *)(-1))
-
-#define DICTKEY_DECL \
-    PyObject	*dictkey_todecref = NULL;
-#define DICTKEY_GET(err, decref) \
-    if (!(key = StringToChars(keyObject, &dictkey_todecref))) \
-    { \
-	if (decref) \
-	{ \
-	    Py_DECREF(keyObject); \
-	} \
-	return err; \
-    } \
-    if (decref && !dictkey_todecref) \
-	dictkey_todecref = keyObject; \
-    if (*key == NUL) \
-    { \
-	PyErr_SetString(PyExc_ValueError, _("empty keys are not allowed")); \
-	return err; \
-    }
-#define DICTKEY_UNREF \
-    Py_XDECREF(dictkey_todecref);
 
 typedef void (*rangeinitializer)(void *);
 typedef void (*runner)(const char *, void *
@@ -69,6 +51,10 @@ static PyInt RangeStart;
 static PyInt RangeEnd;
 
 static PyObject *globals;
+
+static PyObject *py_chdir;
+static PyObject *py_fchdir;
+static PyObject *py_getcwd;
 
 /*
  * obtain a lock on the Vim data structures
@@ -724,17 +710,86 @@ VimStrwidth(PyObject *self UNUSED, PyObject *args)
 	    );
 }
 
+    static PyObject *
+_VimChdir(PyObject *_chdir, PyObject *args, PyObject *kwargs)
+{
+    PyObject	*r;
+    PyObject	*newwd;
+    PyObject	*todecref;
+    char_u	*new_dir;
+
+    if (_chdir == NULL)
+	return NULL;
+    if (!(r = PyObject_Call(_chdir, args, kwargs)))
+	return NULL;
+
+    if (!(newwd = PyObject_CallFunctionObjArgs(py_getcwd, NULL)))
+    {
+	Py_DECREF(r);
+	return NULL;
+    }
+
+    if (!(new_dir = StringToChars(newwd, &todecref)))
+    {
+	Py_DECREF(r);
+	Py_DECREF(newwd);
+	return NULL;
+    }
+
+    VimTryStart();
+
+    if (vim_chdir(new_dir))
+    {
+	Py_DECREF(r);
+	Py_DECREF(newwd);
+	Py_XDECREF(todecref);
+
+	if (VimTryEnd())
+	    return NULL;
+
+	PyErr_SetVim(_("failed to change directory"));
+	return NULL;
+    }
+
+    Py_DECREF(newwd);
+    Py_XDECREF(todecref);
+
+    post_chdir(FALSE);
+
+    if (VimTryEnd())
+    {
+	Py_DECREF(r);
+	return NULL;
+    }
+
+    return r;
+}
+
+    static PyObject *
+VimChdir(PyObject *self UNUSED, PyObject *args, PyObject *kwargs)
+{
+    return _VimChdir(py_chdir, args, kwargs);
+}
+
+    static PyObject *
+VimFchdir(PyObject *self UNUSED, PyObject *args, PyObject *kwargs)
+{
+    return _VimChdir(py_fchdir, args, kwargs);
+}
+
 /*
  * Vim module - Definitions
  */
 
 static struct PyMethodDef VimMethods[] = {
-    /* name,	     function,		calling,	documentation */
-    {"command",	     VimCommand,	METH_VARARGS,	"Execute a Vim ex-mode command" },
-    {"eval",	     VimEval,		METH_VARARGS,	"Evaluate an expression using Vim evaluator" },
-    {"bindeval",     VimEvalPy,		METH_VARARGS,	"Like eval(), but returns objects attached to vim ones"},
-    {"strwidth",     VimStrwidth,	METH_VARARGS,	"Screen string width, counts <Tab> as having width 1"},
-    { NULL,	     NULL,		0,		NULL }
+    /* name,	     function,			calling,			documentation */
+    {"command",	     VimCommand,		METH_VARARGS,			"Execute a Vim ex-mode command" },
+    {"eval",	     VimEval,			METH_VARARGS,			"Evaluate an expression using Vim evaluator" },
+    {"bindeval",     VimEvalPy,			METH_VARARGS,			"Like eval(), but returns objects attached to vim ones"},
+    {"strwidth",     VimStrwidth,		METH_VARARGS,			"Screen string width, counts <Tab> as having width 1"},
+    {"chdir",	     (PyCFunction)VimChdir,	METH_VARARGS|METH_KEYWORDS,	"Change directory"},
+    {"fchdir",	     (PyCFunction)VimFchdir,	METH_VARARGS|METH_KEYWORDS,	"Change directory"},
+    { NULL,	     NULL,			0,				NULL }
 };
 
 /*
@@ -1016,8 +1071,7 @@ _DictionaryItem(DictionaryObject *self, PyObject *args, int flags)
     dictitem_T	*di;
     dict_T	*dict = self->dict;
     hashitem_T	*hi;
-
-    DICTKEY_DECL
+    PyObject	*todecref;
 
     if (flags & DICT_FLAG_HAS_DEFAULT)
     {
@@ -1030,11 +1084,19 @@ _DictionaryItem(DictionaryObject *self, PyObject *args, int flags)
     if (flags & DICT_FLAG_RETURN_BOOL)
 	defObject = Py_False;
 
-    DICTKEY_GET(NULL, 0)
+    if (!(key = StringToChars(keyObject, &todecref)))
+	return NULL;
+
+    if (*key == NUL)
+    {
+	RAISE_NO_EMPTY_KEYS;
+	Py_XDECREF(todecref);
+	return NULL;
+    }
 
     hi = hash_find(&dict->dv_hashtab, key);
 
-    DICTKEY_UNREF
+    Py_XDECREF(todecref);
 
     if (HASHITEM_EMPTY(hi))
     {
@@ -1073,17 +1135,6 @@ _DictionaryItem(DictionaryObject *self, PyObject *args, int flags)
 	dictitem_free(di);
     }
 
-    if (flags & DICT_FLAG_RETURN_PAIR)
-    {
-	PyObject	*tmp = r;
-
-	if (!(r = Py_BuildValue("(" Py_bytes_fmt "O)", hi->hi_key, tmp)))
-	{
-	    Py_DECREF(tmp);
-	    return NULL;
-	}
-    }
-
     return r;
 }
 
@@ -1112,7 +1163,7 @@ typedef struct
     long_u	ht_used;
     hashtab_T	*ht;
     hashitem_T	*hi;
-    int		todo;
+    long_u	todo;
 } dictiterinfo_T;
 
     static PyObject *
@@ -1173,7 +1224,7 @@ DictionaryAssItem(DictionaryObject *self, PyObject *keyObject, PyObject *valObje
     typval_T	tv;
     dict_T	*dict = self->dict;
     dictitem_T	*di;
-    DICTKEY_DECL
+    PyObject	*todecref;
 
     if (dict->dv_lock)
     {
@@ -1181,7 +1232,15 @@ DictionaryAssItem(DictionaryObject *self, PyObject *keyObject, PyObject *valObje
 	return -1;
     }
 
-    DICTKEY_GET(-1, 0)
+    if (!(key = StringToChars(keyObject, &todecref)))
+	return -1;
+
+    if (*key == NUL)
+    {
+	RAISE_NO_EMPTY_KEYS;
+	Py_XDECREF(todecref);
+	return -1;
+    }
 
     di = dict_find(dict, key, -1);
 
@@ -1191,23 +1250,28 @@ DictionaryAssItem(DictionaryObject *self, PyObject *keyObject, PyObject *valObje
 
 	if (di == NULL)
 	{
-	    DICTKEY_UNREF
+	    Py_XDECREF(todecref);
 	    PyErr_SetObject(PyExc_KeyError, keyObject);
 	    return -1;
 	}
 	hi = hash_find(&dict->dv_hashtab, di->di_key);
 	hash_remove(&dict->dv_hashtab, hi);
 	dictitem_free(di);
+	Py_XDECREF(todecref);
 	return 0;
     }
 
     if (ConvertFromPyObject(valObject, &tv) == -1)
+    {
+	Py_XDECREF(todecref);
 	return -1;
+    }
 
     if (di == NULL)
     {
 	if (!(di = dictitem_alloc(key)))
 	{
+	    Py_XDECREF(todecref);
 	    PyErr_NoMemory();
 	    return -1;
 	}
@@ -1216,7 +1280,7 @@ DictionaryAssItem(DictionaryObject *self, PyObject *keyObject, PyObject *valObje
 
 	if (dict_add(dict, di) == FAIL)
 	{
-	    DICTKEY_UNREF
+	    Py_XDECREF(todecref);
 	    vim_free(di);
 	    dictitem_free(di);
 	    PyErr_SetVim(_("failed to add key to dictionary"));
@@ -1226,7 +1290,7 @@ DictionaryAssItem(DictionaryObject *self, PyObject *keyObject, PyObject *valObje
     else
 	clear_tv(&di->di_tv);
 
-    DICTKEY_UNREF
+    Py_XDECREF(todecref);
 
     copy_tv(&tv, &di->di_tv);
     clear_tv(&tv);
@@ -1462,15 +1526,38 @@ DictionaryPop(DictionaryObject *self, PyObject *args)
 }
 
     static PyObject *
-DictionaryPopItem(DictionaryObject *self, PyObject *args)
+DictionaryPopItem(DictionaryObject *self)
 {
-    PyObject	*keyObject;
+    hashitem_T	*hi;
+    PyObject	*r;
+    PyObject	*valObject;
+    dictitem_T	*di;
 
-    if (!PyArg_ParseTuple(args, "O", &keyObject))
+    if (self->dict->dv_hashtab.ht_used == 0)
+    {
+	PyErr_SetNone(PyExc_KeyError);
+	return NULL;
+    }
+
+    hi = self->dict->dv_hashtab.ht_array;
+    while (HASHITEM_EMPTY(hi))
+	++hi;
+
+    di = dict_lookup(hi);
+
+    if (!(valObject = ConvertToPyObject(&di->di_tv)))
 	return NULL;
 
-    return _DictionaryItem(self, keyObject,
-			    DICT_FLAG_POP|DICT_FLAG_RETURN_PAIR);
+    if (!(r = Py_BuildValue("(" Py_bytes_fmt "O)", hi->hi_key, valObject)))
+    {
+	Py_DECREF(valObject);
+	return NULL;
+    }
+
+    hash_remove(&self->dict->dv_hashtab, hi);
+    dictitem_free(di);
+
+    return r;
 }
 
     static PyObject *
@@ -1510,7 +1597,7 @@ static struct PyMethodDef DictionaryMethods[] = {
     {"update",	(PyCFunction)DictionaryUpdate,		METH_VARARGS|METH_KEYWORDS, ""},
     {"get",	(PyCFunction)DictionaryGet,		METH_VARARGS,	""},
     {"pop",	(PyCFunction)DictionaryPop,		METH_VARARGS,	""},
-    {"popitem",	(PyCFunction)DictionaryPopItem,		METH_VARARGS,	""},
+    {"popitem",	(PyCFunction)DictionaryPopItem,		METH_NOARGS,	""},
     {"has_key",	(PyCFunction)DictionaryHasKey,		METH_VARARGS,	""},
     {"__dir__",	(PyCFunction)DictionaryDir,		METH_NOARGS,	""},
     { NULL,	NULL,					0,		NULL}
@@ -2202,17 +2289,25 @@ OptionsItem(OptionsObject *self, PyObject *keyObject)
     int		flags;
     long	numval;
     char_u	*stringval;
-    DICTKEY_DECL
+    PyObject	*todecref;
 
     if (self->Check(self->from))
 	return NULL;
 
-    DICTKEY_GET(NULL, 0)
+    if (!(key = StringToChars(keyObject, &todecref)))
+	return NULL;
+
+    if (*key == NUL)
+    {
+	RAISE_NO_EMPTY_KEYS;
+	Py_XDECREF(todecref);
+	return NULL;
+    }
 
     flags = get_option_value_strict(key, &numval, &stringval,
 				    self->opt_type, self->from);
 
-    DICTKEY_UNREF
+    Py_XDECREF(todecref);
 
     if (flags == 0)
     {
@@ -2329,12 +2424,20 @@ OptionsAssItem(OptionsObject *self, PyObject *keyObject, PyObject *valObject)
     int		flags;
     int		opt_flags;
     int		r = 0;
-    DICTKEY_DECL
+    PyObject	*todecref;
 
     if (self->Check(self->from))
 	return -1;
 
-    DICTKEY_GET(-1, 0)
+    if (!(key = StringToChars(keyObject, &todecref)))
+	return -1;
+
+    if (*key == NUL)
+    {
+	RAISE_NO_EMPTY_KEYS;
+	Py_XDECREF(todecref);
+	return -1;
+    }
 
     flags = get_option_value_strict(key, NULL, NULL,
 				    self->opt_type, self->from);
@@ -2342,7 +2445,7 @@ OptionsAssItem(OptionsObject *self, PyObject *keyObject, PyObject *valObject)
     if (flags == 0)
     {
 	PyErr_SetObject(PyExc_KeyError, keyObject);
-	DICTKEY_UNREF
+	Py_XDECREF(todecref);
 	return -1;
     }
 
@@ -2352,20 +2455,20 @@ OptionsAssItem(OptionsObject *self, PyObject *keyObject, PyObject *valObject)
 	{
 	    PyErr_SetString(PyExc_ValueError,
 		    _("unable to unset global option"));
-	    DICTKEY_UNREF
+	    Py_XDECREF(todecref);
 	    return -1;
 	}
 	else if (!(flags & SOPT_GLOBAL))
 	{
 	    PyErr_SetString(PyExc_ValueError, _("unable to unset option "
 						"without global value"));
-	    DICTKEY_UNREF
+	    Py_XDECREF(todecref);
 	    return -1;
 	}
 	else
 	{
 	    unset_global_local_option(key, self->from);
-	    DICTKEY_UNREF
+	    Py_XDECREF(todecref);
 	    return 0;
 	}
     }
@@ -2396,7 +2499,7 @@ OptionsAssItem(OptionsObject *self, PyObject *keyObject, PyObject *valObject)
 	else
 	{
 	    PyErr_SetString(PyExc_TypeError, _("object must be integer"));
-	    DICTKEY_UNREF
+	    Py_XDECREF(todecref);
 	    return -1;
 	}
 
@@ -2409,16 +2512,13 @@ OptionsAssItem(OptionsObject *self, PyObject *keyObject, PyObject *valObject)
 	PyObject	*todecref;
 
 	if ((val = StringToChars(valObject, &todecref)))
-	{
 	    r = set_option_value_for(key, 0, val, opt_flags,
 				    self->opt_type, self->from);
-	    Py_XDECREF(todecref);
-	}
 	else
 	    r = -1;
     }
 
-    DICTKEY_UNREF
+    Py_XDECREF(todecref);
 
     return r;
 }
@@ -3807,7 +3907,7 @@ RangeRepr(RangeObject *self)
 	    name = "";
 
 	return PyString_FromFormat("<range %s (%d:%d)>",
-				    name, self->start, self->end);
+				    name, (int)self->start, (int)self->end);
     }
 }
 
@@ -4528,7 +4628,7 @@ pydict_to_tv(PyObject *obj, typval_T *tv, PyObject *lookup_dict)
     PyObject	*valObject;
     Py_ssize_t	iter = 0;
 
-    if (!(dict = dict_alloc()))
+    if (!(dict = py_dict_alloc()))
 	return -1;
 
     tv->v_type = VAR_DICT;
@@ -4549,10 +4649,12 @@ pydict_to_tv(PyObject *obj, typval_T *tv, PyObject *lookup_dict)
 	    dict_unref(dict);
 	    return -1;
 	}
+
 	if (*key == NUL)
 	{
 	    dict_unref(dict);
 	    Py_XDECREF(todecref);
+	    RAISE_NO_EMPTY_KEYS;
 	    return -1;
 	}
 
@@ -4600,7 +4702,7 @@ pymap_to_tv(PyObject *obj, typval_T *tv, PyObject *lookup_dict)
     PyObject	*keyObject;
     PyObject	*valObject;
 
-    if (!(dict = dict_alloc()))
+    if (!(dict = py_dict_alloc()))
 	return -1;
 
     tv->v_type = VAR_DICT;
@@ -4631,12 +4733,14 @@ pymap_to_tv(PyObject *obj, typval_T *tv, PyObject *lookup_dict)
 	    dict_unref(dict);
 	    return -1;
 	}
+
 	if (*key == NUL)
 	{
 	    Py_DECREF(keyObject);
 	    Py_DECREF(iterator);
 	    Py_XDECREF(todecref);
 	    dict_unref(dict);
+	    RAISE_NO_EMPTY_KEYS;
 	    return -1;
 	}
 
@@ -5245,6 +5349,7 @@ static struct object_constant {
 };
 
 typedef int (*object_adder)(PyObject *, const char *, PyObject *);
+typedef PyObject *(*attr_getter)(PyObject *, const char *);
 
 #define ADD_OBJECT(m, name, obj) \
     if (add_object(m, name, obj)) \
@@ -5259,9 +5364,10 @@ typedef int (*object_adder)(PyObject *, const char *, PyObject *);
     }
 
     static int
-populate_module(PyObject *m, object_adder add_object)
+populate_module(PyObject *m, object_adder add_object, attr_getter get_attr)
 {
     int i;
+    PyObject	*os;
 
     for (i = 0; i < (int)(sizeof(numeric_constants)
 					   / sizeof(struct numeric_constant));
@@ -5288,5 +5394,29 @@ populate_module(PyObject *m, object_adder add_object)
     ADD_CHECKED_OBJECT(m, "vvars", NEW_DICTIONARY(&vimvardict));
     ADD_CHECKED_OBJECT(m, "options",
 	    OptionsNew(SREQ_GLOBAL, NULL, dummy_check, NULL));
+
+    if (!(os = PyImport_ImportModule("os")))
+	return -1;
+    ADD_OBJECT(m, "os", os);
+
+    if (!(py_getcwd = PyObject_GetAttrString(os, "getcwd")))
+	return -1;
+    ADD_OBJECT(m, "_getcwd", py_getcwd)
+
+    if (!(py_chdir = PyObject_GetAttrString(os, "chdir")))
+	return -1;
+    ADD_OBJECT(m, "_chdir", py_chdir);
+    if (PyObject_SetAttrString(os, "chdir", get_attr(m, "chdir")))
+	return -1;
+
+    if ((py_fchdir = PyObject_GetAttrString(os, "fchdir")))
+    {
+	ADD_OBJECT(m, "_fchdir", py_fchdir);
+	if (PyObject_SetAttrString(os, "fchdir", get_attr(m, "fchdir")))
+	    return -1;
+    }
+    else
+	PyErr_Clear();
+
     return 0;
 }

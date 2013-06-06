@@ -244,6 +244,9 @@ static void	ex_popup __ARGS((exarg_T *eap));
 # define ex_syntax		ex_ni
 # define ex_ownsyntax		ex_ni
 #endif
+#if !defined(FEAT_SYN_HL) || !defined(FEAT_PROFILE)
+# define ex_syntime		ex_ni
+#endif
 #ifndef FEAT_SPELL
 # define ex_spell		ex_ni
 # define ex_mkspell		ex_ni
@@ -3255,6 +3258,9 @@ set_one_cmd_context(xp, buff)
 	    ++p;
 	/* check for non-alpha command */
 	if (p == cmd && vim_strchr((char_u *)"@*!=><&~#", *p) != NULL)
+	    ++p;
+	/* for python 3.x: ":py3*" commands completion */
+	if (cmd[0] == 'p' && cmd[1] == 'y' && p == cmd + 2 && *p == '3')
 	    ++p;
 	len = (int)(p - cmd);
 
@@ -8201,6 +8207,37 @@ free_cd_dir()
 }
 #endif
 
+/*
+ * Deal with the side effects of changing the current directory.
+ * When "local" is TRUE then this was after an ":lcd" command.
+ */
+    void
+post_chdir(local)
+    int		local;
+{
+    vim_free(curwin->w_localdir);
+    if (local)
+    {
+	/* If still in global directory, need to remember current
+	 * directory as global directory. */
+	if (globaldir == NULL && prev_dir != NULL)
+	    globaldir = vim_strsave(prev_dir);
+	/* Remember this local directory for the window. */
+	if (mch_dirname(NameBuff, MAXPATHL) == OK)
+	    curwin->w_localdir = vim_strsave(NameBuff);
+    }
+    else
+    {
+	/* We are now in the global directory, no need to remember its
+	 * name. */
+	vim_free(globaldir);
+	globaldir = NULL;
+	curwin->w_localdir = NULL;
+    }
+
+    shorten_fnames(TRUE);
+}
+
 
 /*
  * ":cd", ":lcd", ":chdir" and ":lchdir".
@@ -8272,27 +8309,7 @@ ex_cd(eap)
 	    EMSG(_(e_failed));
 	else
 	{
-	    vim_free(curwin->w_localdir);
-	    if (eap->cmdidx == CMD_lcd || eap->cmdidx == CMD_lchdir)
-	    {
-		/* If still in global directory, need to remember current
-		 * directory as global directory. */
-		if (globaldir == NULL && prev_dir != NULL)
-		    globaldir = vim_strsave(prev_dir);
-		/* Remember this local directory for the window. */
-		if (mch_dirname(NameBuff, MAXPATHL) == OK)
-		    curwin->w_localdir = vim_strsave(NameBuff);
-	    }
-	    else
-	    {
-		/* We are now in the global directory, no need to remember its
-		 * name. */
-		vim_free(globaldir);
-		globaldir = NULL;
-		curwin->w_localdir = NULL;
-	    }
-
-	    shorten_fnames(TRUE);
+	    post_chdir(eap->cmdidx == CMD_lcd || eap->cmdidx == CMD_lchdir);
 
 	    /* Echo the new current directory if the command was typed. */
 	    if (KeyTyped || p_verbose >= 5)
