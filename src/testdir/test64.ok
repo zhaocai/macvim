@@ -797,6 +797,39 @@ OK 2 - \%u0020
 OK 0 - \%U00000020
 OK 1 - \%U00000020
 OK 2 - \%U00000020
+OK 0 - foo\%[bar]
+OK 1 - foo\%[bar]
+OK 2 - foo\%[bar]
+OK 0 - foo\%[bar]
+OK 1 - foo\%[bar]
+OK 2 - foo\%[bar]
+OK 0 - foo\%[bar]
+OK 1 - foo\%[bar]
+OK 2 - foo\%[bar]
+OK 0 - foo\%[bar]
+OK 1 - foo\%[bar]
+OK 2 - foo\%[bar]
+OK 0 - foo\%[bar]
+OK 1 - foo\%[bar]
+OK 2 - foo\%[bar]
+OK 0 - foo\%[bar]
+OK 1 - foo\%[bar]
+OK 2 - foo\%[bar]
+OK 0 - foo\%[bar]x
+OK 1 - foo\%[bar]x
+OK 2 - foo\%[bar]x
+OK 0 - foo\%[bar]x
+OK 1 - foo\%[bar]x
+OK 2 - foo\%[bar]x
+OK 0 - \%[bar]x
+OK 1 - \%[bar]x
+OK 2 - \%[bar]x
+OK 0 - \%[bar]x
+OK 1 - \%[bar]x
+OK 2 - \%[bar]x
+OK 0 - \%[bar]x
+OK 1 - \%[bar]x
+OK 2 - \%[bar]x
 OK 0 - goo\|go
 OK 1 - goo\|go
 OK 2 - goo\|go
@@ -839,6 +872,14 @@ OK 2 - \(<<\)\@2<=span.
 OK 0 - \(foo\)\@<!bar.
 OK 1 - \(foo\)\@<!bar.
 OK 2 - \(foo\)\@<!bar.
+OK 0 - \(a*\)\@>a
+OK 1 - \(a*\)\@>a
+OK 2 - \(a*\)\@>a
+OK 0 - \(a*\)\@>b
+OK 1 - \(a*\)\@>b
+OK 2 - \(a*\)\@>b
+OK 0 - \(a*\)\@>a\|a\+
+OK 2 - \(a*\)\@>a\|a\+
 OK 0 - \_[^8-9]\+
 OK 1 - \_[^8-9]\+
 OK 2 - \_[^8-9]\+
@@ -857,6 +898,15 @@ OK 2 - [0-9a-zA-Z]\{8}-\([0-9a-zA-Z]\{4}-\)\{3}[0-9a-zA-Z]\{12}
 ghi
 
 xxstart3
+
+thexE thE thExethe
+AndAxAnd AndAxAnd
+oooxOfOr fOrOxooo
+oooxOfOr fOrOxooo
+
+asdfhereasdf
+asdfagainasdf
+
 -0-
 ffo
 bob

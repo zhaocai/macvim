@@ -352,6 +352,19 @@ STARTTEST
 :call add(tl, [2, '\%u0020', 'yes no', ' '])
 :call add(tl, [2, '\%U00000020', 'yes no', ' '])
 :"
+:""""" \%[abc]
+:call add(tl, [2, 'foo\%[bar]', 'fobar'])
+:call add(tl, [2, 'foo\%[bar]', 'foobar', 'foobar'])
+:call add(tl, [2, 'foo\%[bar]', 'fooxx', 'foo'])
+:call add(tl, [2, 'foo\%[bar]', 'foobxx', 'foob'])
+:call add(tl, [2, 'foo\%[bar]', 'foobaxx', 'fooba'])
+:call add(tl, [2, 'foo\%[bar]', 'foobarxx', 'foobar'])
+:call add(tl, [2, 'foo\%[bar]x', 'foobxx', 'foobx'])
+:call add(tl, [2, 'foo\%[bar]x', 'foobarxx', 'foobarx'])
+:call add(tl, [2, '\%[bar]x', 'barxx', 'barx'])
+:call add(tl, [2, '\%[bar]x', 'bxx', 'bx'])
+:call add(tl, [2, '\%[bar]x', 'xxx', 'x'])
+:"
 :"""" Alternatives, must use first longest match
 :call add(tl, [2, 'goo\|go', 'google', 'goo'])
 :call add(tl, [2, '\<goo\|\<go', 'google', 'goo'])
@@ -372,6 +385,12 @@ STARTTEST
 :call add(tl, [2, '\(<<\)\@2<=span.', 'xxspanxxxx<spanxx<<spanyyy', 'spany', '<<'])
 :call add(tl, [2, '\(foo\)\@<!bar.', 'xx foobar1 xbar2 xx', 'bar2'])
 :"
+:""""" \@>
+:call add(tl, [2, '\(a*\)\@>a', 'aaaa'])
+:call add(tl, [2, '\(a*\)\@>b', 'aaab', 'aaab', 'aaa'])
+:" TODO: BT engine does not restore submatch after failure
+:call add(tl, [1, '\(a*\)\@>a\|a\+', 'aaaa', 'aaaa'])
+:"
 :"""" "\_" prepended negated collection matches EOL
 :call add(tl, [2, '\_[^8-9]\+', "asfi\n9888", "asfi\n"])
 :call add(tl, [2, '\_[^a]\+', "asfi\n9888", "sfi\n9888"])
@@ -388,7 +407,7 @@ STARTTEST
 :  let text = t[2]
 :  let matchidx = 3
 :  for engine in [0, 1, 2]
-:    if engine == 2 && !re
+:    if engine == 2 && re == 0 || engine == 1 && re ==1
 :      continue
 :    endif
 :    let &regexpengine = engine
@@ -458,6 +477,21 @@ y$Gop:"
 :.yank
 Gop:"
 :"
+:" Check matching Visual area
+/^Visual:
+jfxvfx:s/\%Ve/E/g
+jV:s/\%Va/A/g
+jfxfxj:s/\%Vo/O/g
+:/^Visual/+1,/^Visual/+4yank
+Gop:"
+:"
+:" Check matching marks
+/^Marks:
+jfSmsfEme:.-4,.+6s/.\%>'s.*\%<'e../here/
+jfSmsj0fEme:.-4,.+6s/.\%>'s\_.*\%<'e../again/
+:/^Marks:/+1,/^Marks:/+3yank
+Gop:"
+:"
 :" Check patterns matching cursor position.
 :func! Postest()
  new
@@ -519,5 +553,16 @@ asdfasd<yy
 xxxstart2
 asdfasd<yy
 xxstart3
+
+Visual:
+thexe the thexethe
+andaxand andaxand
+oooxofor foroxooo
+oooxofor foroxooo
+
+Marks:
+asdfSasdfsadfEasdf
+asdfSas
+dfsadfEasdf
 
 Results of test64:

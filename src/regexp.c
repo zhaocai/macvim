@@ -365,7 +365,8 @@ static char_u e_unmatchedpar[] = N_("E55: Unmatched %s)");
 static char_u e_z_not_allowed[] = N_("E66: \\z( not allowed here");
 static char_u e_z1_not_allowed[] = N_("E67: \\z1 et al. not allowed here");
 #endif
-
+static char_u e_missing_sb[] = N_("E69: Missing ] after %s%%[");
+static char_u e_empty_sb[]  = N_("E70: Empty %s%%[]");
 #define NOT_MULTI	0
 #define MULTI_ONE	1
 #define MULTI_MULT	2
@@ -1173,6 +1174,16 @@ get_coll_element(pp)
     return 0;
 }
 
+static void get_cpo_flags __ARGS((void));
+static int reg_cpo_lit; /* 'cpoptions' contains 'l' flag */
+static int reg_cpo_bsl; /* 'cpoptions' contains '\' flag */
+
+    static void
+get_cpo_flags()
+{
+    reg_cpo_lit = vim_strchr(p_cpo, CPO_LITERAL) != NULL;
+    reg_cpo_bsl = vim_strchr(p_cpo, CPO_BACKSL) != NULL;
+}
 
 /*
  * Skip over a "[]" range.
@@ -1183,14 +1194,9 @@ get_coll_element(pp)
 skip_anyof(p)
     char_u	*p;
 {
-    int		cpo_lit;	/* 'cpoptions' contains 'l' flag */
-    int		cpo_bsl;	/* 'cpoptions' contains '\' flag */
 #ifdef FEAT_MBYTE
     int		l;
 #endif
-
-    cpo_lit = vim_strchr(p_cpo, CPO_LITERAL) != NULL;
-    cpo_bsl = vim_strchr(p_cpo, CPO_BACKSL) != NULL;
 
     if (*p == '^')	/* Complement of range. */
 	++p;
@@ -1210,9 +1216,9 @@ skip_anyof(p)
 		    mb_ptr_adv(p);
 	    }
 	else if (*p == '\\'
-		&& !cpo_bsl
+		&& !reg_cpo_bsl
 		&& (vim_strchr(REGEXP_INRANGE, p[1]) != NULL
-		    || (!cpo_lit && vim_strchr(REGEXP_ABBR, p[1]) != NULL)))
+		    || (!reg_cpo_lit && vim_strchr(REGEXP_ABBR, p[1]) != NULL)))
 	    p += 2;
 	else if (*p == '[')
 	{
@@ -1251,6 +1257,7 @@ skip_regexp(startp, dirc, magic, newp)
 	mymagic = MAGIC_ON;
     else
 	mymagic = MAGIC_OFF;
+    get_cpo_flags();
 
     for (; p[0] != NUL; mb_ptr_adv(p))
     {
@@ -1462,6 +1469,7 @@ regcomp_start(expr, re_flags)
 	reg_magic = MAGIC_OFF;
     reg_string = (re_flags & RE_STRING);
     reg_strict = (re_flags & RE_STRICT);
+    get_cpo_flags();
 
     num_complex_braces = 0;
     regnpar = 1;
@@ -1909,15 +1917,11 @@ regatom(flagp)
 {
     char_u	    *ret;
     int		    flags;
-    int		    cpo_lit;	    /* 'cpoptions' contains 'l' flag */
-    int		    cpo_bsl;	    /* 'cpoptions' contains '\' flag */
     int		    c;
     char_u	    *p;
     int		    extra = 0;
 
     *flagp = WORST;		/* Tentatively. */
-    cpo_lit = vim_strchr(p_cpo, CPO_LITERAL) != NULL;
-    cpo_bsl = vim_strchr(p_cpo, CPO_BACKSL) != NULL;
 
     c = getchr();
     switch (c)
@@ -2207,7 +2211,7 @@ regatom(flagp)
 			      while ((c = getchr()) != ']')
 			      {
 				  if (c == NUL)
-				      EMSG2_RET_NULL(_("E69: Missing ] after %s%%["),
+				      EMSG2_RET_NULL(_(e_missing_sb),
 						      reg_magic == MAGIC_ALL);
 				  br = regnode(BRANCH);
 				  if (ret == NULL)
@@ -2223,7 +2227,7 @@ regatom(flagp)
 				      return NULL;
 			      }
 			      if (ret == NULL)
-				  EMSG2_RET_NULL(_("E70: Empty %s%%[]"),
+				  EMSG2_RET_NULL(_(e_empty_sb),
 						      reg_magic == MAGIC_ALL);
 			      lastbranch = regnode(BRANCH);
 			      br = regnode(NOTHING);
@@ -2410,7 +2414,7 @@ collection:
 			    }
 
 			    /* Handle \o40, \x20 and \u20AC style sequences */
-			    if (endc == '\\' && !cpo_lit && !cpo_bsl)
+			    if (endc == '\\' && !reg_cpo_lit && !reg_cpo_bsl)
 				endc = coll_get_char();
 
 			    if (startc > endc)
@@ -2452,9 +2456,9 @@ collection:
 		     * Posix doesn't recognize backslash at all.
 		     */
 		    else if (*regparse == '\\'
-			    && !cpo_bsl
+			    && !reg_cpo_bsl
 			    && (vim_strchr(REGEXP_INRANGE, regparse[1]) != NULL
-				|| (!cpo_lit
+				|| (!reg_cpo_lit
 				    && vim_strchr(REGEXP_ABBR,
 						       regparse[1]) != NULL)))
 		    {
@@ -4165,6 +4169,85 @@ reg_prev_class()
 }
 
 #endif
+#ifdef FEAT_VISUAL
+static int reg_match_visual __ARGS((void));
+
+/*
+ * Return TRUE if the current reginput position matches the Visual area.
+ */
+    static int
+reg_match_visual()
+{
+    pos_T	top, bot;
+    linenr_T    lnum;
+    colnr_T	col;
+    win_T	*wp = reg_win == NULL ? curwin : reg_win;
+    int		mode;
+    colnr_T	start, end;
+    colnr_T	start2, end2;
+    colnr_T	cols;
+
+    /* Check if the buffer is the current buffer. */
+    if (reg_buf != curbuf || VIsual.lnum == 0)
+	return FALSE;
+
+    if (VIsual_active)
+    {
+	if (lt(VIsual, wp->w_cursor))
+	{
+	    top = VIsual;
+	    bot = wp->w_cursor;
+	}
+	else
+	{
+	    top = wp->w_cursor;
+	    bot = VIsual;
+	}
+	mode = VIsual_mode;
+    }
+    else
+    {
+	if (lt(curbuf->b_visual.vi_start, curbuf->b_visual.vi_end))
+	{
+	    top = curbuf->b_visual.vi_start;
+	    bot = curbuf->b_visual.vi_end;
+	}
+	else
+	{
+	    top = curbuf->b_visual.vi_end;
+	    bot = curbuf->b_visual.vi_start;
+	}
+	mode = curbuf->b_visual.vi_mode;
+    }
+    lnum = reglnum + reg_firstlnum;
+    if (lnum < top.lnum || lnum > bot.lnum)
+	return FALSE;
+
+    if (mode == 'v')
+    {
+	col = (colnr_T)(reginput - regline);
+	if ((lnum == top.lnum && col < top.col)
+		|| (lnum == bot.lnum && col >= bot.col + (*p_sel != 'e')))
+	    return FALSE;
+    }
+    else if (mode == Ctrl_V)
+    {
+	getvvcol(wp, &top, &start, NULL, &end);
+	getvvcol(wp, &bot, &start2, NULL, &end2);
+	if (start2 < start)
+	    start = start2;
+	if (end2 > end)
+	    end = end2;
+	if (top.col == MAXCOL || bot.col == MAXCOL)
+	    end = MAXCOL;
+	cols = win_linetabsize(wp, regline, (colnr_T)(reginput - regline));
+	if (cols < start || cols > end - (*p_sel == 'e'))
+	    return FALSE;
+    }
+    return TRUE;
+}
+#endif
+
 #define ADVANCE_REGINPUT() mb_ptr_adv(reginput)
 
 /*
@@ -4322,8 +4405,7 @@ regmatch(scan)
 	    break;
 
 	  case RE_MARK:
-	    /* Compare the mark position to the match position.  NOTE: Always
-	     * uses the current buffer. */
+	    /* Compare the mark position to the match position. */
 	    {
 		int	mark = OPERAND(scan)[0];
 		int	cmp = OPERAND(scan)[1];
@@ -4331,7 +4413,7 @@ regmatch(scan)
 
 		pos = getmark_buf(reg_buf, mark, FALSE);
 		if (pos == NULL		     /* mark doesn't exist */
-			|| pos->lnum <= 0    /* mark isn't set (in curbuf) */
+			|| pos->lnum <= 0    /* mark isn't set in reg_buf */
 			|| (pos->lnum == reglnum + reg_firstlnum
 				? (pos->col == (colnr_T)(reginput - regline)
 				    ? (cmp == '<' || cmp == '>')
@@ -4347,80 +4429,9 @@ regmatch(scan)
 
 	  case RE_VISUAL:
 #ifdef FEAT_VISUAL
-	    /* Check if the buffer is the current buffer. and whether the
-	     * position is inside the Visual area. */
-	    if (reg_buf != curbuf || VIsual.lnum == 0)
-		status = RA_NOMATCH;
-	    else
-	    {
-		pos_T	    top, bot;
-		linenr_T    lnum;
-		colnr_T	    col;
-		win_T	    *wp = reg_win == NULL ? curwin : reg_win;
-		int	    mode;
-
-		if (VIsual_active)
-		{
-		    if (lt(VIsual, wp->w_cursor))
-		    {
-			top = VIsual;
-			bot = wp->w_cursor;
-		    }
-		    else
-		    {
-			top = wp->w_cursor;
-			bot = VIsual;
-		    }
-		    mode = VIsual_mode;
-		}
-		else
-		{
-		    if (lt(curbuf->b_visual.vi_start, curbuf->b_visual.vi_end))
-		    {
-			top = curbuf->b_visual.vi_start;
-			bot = curbuf->b_visual.vi_end;
-		    }
-		    else
-		    {
-			top = curbuf->b_visual.vi_end;
-			bot = curbuf->b_visual.vi_start;
-		    }
-		    mode = curbuf->b_visual.vi_mode;
-		}
-		lnum = reglnum + reg_firstlnum;
-		col = (colnr_T)(reginput - regline);
-		if (lnum < top.lnum || lnum > bot.lnum)
-		    status = RA_NOMATCH;
-		else if (mode == 'v')
-		{
-		    if ((lnum == top.lnum && col < top.col)
-			    || (lnum == bot.lnum
-					 && col >= bot.col + (*p_sel != 'e')))
-			status = RA_NOMATCH;
-		}
-		else if (mode == Ctrl_V)
-		{
-		    colnr_T	    start, end;
-		    colnr_T	    start2, end2;
-		    colnr_T	    cols;
-
-		    getvvcol(wp, &top, &start, NULL, &end);
-		    getvvcol(wp, &bot, &start2, NULL, &end2);
-		    if (start2 < start)
-			start = start2;
-		    if (end2 > end)
-			end = end2;
-		    if (top.col == MAXCOL || bot.col == MAXCOL)
-			end = MAXCOL;
-		    cols = win_linetabsize(wp,
-				      regline, (colnr_T)(reginput - regline));
-		    if (cols < start || cols > end - (*p_sel == 'e'))
-			status = RA_NOMATCH;
-		}
-	    }
-#else
-	    status = RA_NOMATCH;
+	    if (!reg_match_visual())
 #endif
+		status = RA_NOMATCH;
 	    break;
 
 	  case RE_LNUM:
@@ -6527,9 +6538,21 @@ regdump(pattern, r)
 	    end = next;
 	if (op == BRACE_LIMITS)
 	{
-	    /* Two short ints */
+	    /* Two ints */
 	    fprintf(f, " minval %ld, maxval %ld", OPERAND_MIN(s), OPERAND_MAX(s));
 	    s += 8;
+	}
+	else if (op == BEHIND || op == NOBEHIND)
+	{
+	    /* one int */
+	    fprintf(f, " count %ld", OPERAND_MIN(s));
+	    s += 4;
+	}
+	else if (op == RE_LNUM || op == RE_COL || op == RE_VCOL)
+	{
+	    /* one int plus comperator */
+	    fprintf(f, " count %ld", OPERAND_MIN(s));
+	    s += 5;
 	}
 	s += 3;
 	if (op == ANYOF || op == ANYOF + ADD_NL
@@ -7907,7 +7930,6 @@ vim_regcomp(expr_arg, re_flags)
     regprog_T   *prog = NULL;
     char_u	*expr = expr_arg;
 
-    syntax_error = FALSE;
     regexp_engine = p_re;
 
     /* Check for prefix "\%#=", that sets the regexp engine */
@@ -7954,19 +7976,12 @@ vim_regcomp(expr_arg, re_flags)
 	    f = fopen(BT_REGEXP_DEBUG_LOG_NAME, "a");
 	    if (f)
 	    {
-		if (!syntax_error)
-		    fprintf(f, "NFA engine could not handle \"%s\"\n", expr);
-		else
-		    fprintf(f, "Syntax error in \"%s\"\n", expr);
+		fprintf(f, "Syntax error in \"%s\"\n", expr);
 		fclose(f);
 	    }
 	    else
 		EMSG2("(NFA) Could not open \"%s\" to write !!!",
                         BT_REGEXP_DEBUG_LOG_NAME);
-	    /*
-	    if (syntax_error)
-		EMSG("NFA Regexp: Syntax Error !");
-	    */
 	}
 #endif
 	/*
@@ -7975,11 +7990,8 @@ vim_regcomp(expr_arg, re_flags)
 	 * NFA engine.
 	 */
 	if (regexp_engine == AUTOMATIC_ENGINE)
-	    if (!syntax_error)
-		prog = bt_regengine.regcomp(expr, re_flags);
-
-    }	    /* endif prog==NULL */
-
+	    prog = bt_regengine.regcomp(expr, re_flags);
+    }
 
     return prog;
 }
