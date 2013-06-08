@@ -7,7 +7,7 @@
 # This configure script is free software; the Free Software Foundation
 # gives unlimited permission to copy, distribute and modify it.
 ## --------------------- ##
-## M4sh Initialization. ##
+## M4sh Initialization.  ##
 ## --------------------- ##
 
 # Be more Bourne compatible
@@ -45,7 +45,7 @@ if test "${PATH_SEPARATOR+set}" != set; then
   if (PATH="/nonexistent;."; conf$$.sh) >/dev/null 2>&1; then
     PATH_SEPARATOR=';'
   else
-  PATH_SEPARATOR=:
+    PATH_SEPARATOR=:
   fi
   rm -f conf$$.sh
 fi
@@ -5497,14 +5497,19 @@ if test "${vi_cv_path_python_conf+set}" = set; then
 else
 
 	vi_cv_path_python_conf=
-	for path in "${vi_cv_path_python_pfx}" "${vi_cv_path_python_epfx}"; do
-	  for subdir in lib64 lib share; do
-	    d="${path}/${subdir}/python${vi_cv_var_python_version}/config"
-	    if test -d "$d" && test -f "$d/config.c"; then
-	      vi_cv_path_python_conf="$d"
-	    fi
+	d=`${vi_cv_path_python} -c "import distutils.sysconfig; print distutils.sysconfig.get_config_var('LIBPL')"`
+	if test -d "$d" && test -f "$d/config.c"; then
+	  vi_cv_path_python_conf="$d"
+	else
+	  for path in "${vi_cv_path_python_pfx}" "${vi_cv_path_python_epfx}"; do
+	    for subdir in lib64 lib share; do
+	      d="${path}/${subdir}/python${vi_cv_var_python_version}/config"
+	      if test -d "$d" && test -f "$d/config.c"; then
+		vi_cv_path_python_conf="$d"
+	      fi
+	    done
 	  done
-	done
+	fi
 
 fi
 { echo "$as_me:$LINENO: result: $vi_cv_path_python_conf" >&5
@@ -5871,14 +5876,19 @@ else
      if test "${vi_cv_var_python3_abiflags}" != ""; then
        config_dir="${config_dir}-${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags}"
      fi
-     for path in "${vi_cv_path_python3_pfx}" "${vi_cv_path_python3_epfx}"; do
-       for subdir in lib64 lib share; do
-         d="${path}/${subdir}/python${vi_cv_var_python3_version}/${config_dir}"
-         if test -d "$d" && test -f "$d/config.c"; then
-           vi_cv_path_python3_conf="$d"
-         fi
+     d=`${vi_cv_path_python3} -c "import distutils.sysconfig; print(distutils.sysconfig.get_config_var('LIBPL'))"`
+     if test -d "$d" && test -f "$d/config.c"; then
+       vi_cv_path_python3_conf="$d"
+     else
+       for path in "${vi_cv_path_python3_pfx}" "${vi_cv_path_python3_epfx}"; do
+	 for subdir in lib64 lib share; do
+	   d="${path}/${subdir}/python${vi_cv_var_python3_version}/${config_dir}"
+	   if test -d "$d" && test -f "$d/config.c"; then
+	     vi_cv_path_python3_conf="$d"
+	   fi
+	 done
        done
-     done
+     fi
 
 fi
 { echo "$as_me:$LINENO: result: $vi_cv_path_python3_conf" >&5
@@ -6420,7 +6430,7 @@ for as_dir in $PATH
 do
   IFS=$as_save_IFS
   test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
+  for ac_exec_ext in '' $ac_executable_extensions; do
   if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
     ac_cv_path_vi_cv_path_tcl="$as_dir/$ac_word$ac_exec_ext"
     echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
@@ -6463,7 +6473,7 @@ for as_dir in $PATH
 do
   IFS=$as_save_IFS
   test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
+  for ac_exec_ext in '' $ac_executable_extensions; do
   if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
     ac_cv_path_vi_cv_path_tcl="$as_dir/$ac_word$ac_exec_ext"
     echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
@@ -6506,7 +6516,7 @@ for as_dir in $PATH
 do
   IFS=$as_save_IFS
   test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
+  for ac_exec_ext in '' $ac_executable_extensions; do
   if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
     ac_cv_path_vi_cv_path_tcl="$as_dir/$ac_word$ac_exec_ext"
     echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
@@ -6600,7 +6610,7 @@ echo "${ECHO_T}$try/lib$trylib" >&6; }
 		  fi
 		  break 3
 		fi
-  done
+	      done
 	    done
 	  done
 	  if test -z "$TCL_LIBS"; then
@@ -6679,7 +6689,7 @@ for as_dir in $PATH
 do
   IFS=$as_save_IFS
   test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
+  for ac_exec_ext in '' $ac_executable_extensions; do
   if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
     ac_cv_path_vi_cv_path_ruby="$as_dir/$ac_word$ac_exec_ext"
     echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
@@ -6735,7 +6745,7 @@ echo "${ECHO_T}$rubyhdrdir" >&6; }
 	fi
 	librubyarg=`$vi_cv_path_ruby -r rbconfig -e "print $ruby_rbconfig.expand($ruby_rbconfig::CONFIG['LIBRUBYARG'])"`
 	librubya=`$vi_cv_path_ruby -r rbconfig -e "print $ruby_rbconfig.expand($ruby_rbconfig::CONFIG['LIBRUBY_A'])"`
-  rubylibdir=`$vi_cv_path_ruby -r rbconfig -e "print $ruby_rbconfig.expand($ruby_rbconfig::CONFIG['libdir'])"`
+	rubylibdir=`$vi_cv_path_ruby -r rbconfig -e "print $ruby_rbconfig.expand($ruby_rbconfig::CONFIG['libdir'])"`
 	if test -f "$rubylibdir/$librubya"; then
 	  librubyarg="$librubyarg"
 	  RUBY_LIBS="$RUBY_LIBS -L$rubylibdir"
@@ -6779,7 +6789,7 @@ _ACEOF
 	{ echo "$as_me:$LINENO: result: not found; disabling Ruby" >&5
 echo "${ECHO_T}not found; disabling Ruby" >&6; }
       fi
-  else
+    else
       { echo "$as_me:$LINENO: result: too old; need Ruby version 1.6.0 or later" >&5
 echo "${ECHO_T}too old; need Ruby version 1.6.0 or later" >&6; }
     fi
@@ -7179,12 +7189,12 @@ for as_dir in $PATH
 do
   IFS=$as_save_IFS
   test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
+  for ac_exec_ext in '' $ac_executable_extensions; do
   if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
     ac_cv_path_xmkmfpath="$as_dir/$ac_word$ac_exec_ext"
     echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
     break 2
-    fi
+  fi
 done
 done
 IFS=$as_save_IFS
@@ -7248,7 +7258,7 @@ _ACEOF
 	 test -f "$ac_im_libdir/libX11.$ac_extension"; then
 	ac_im_usrlibdir=$ac_im_libdir; break
       fi
-  done
+    done
     # Screen out bogus values from the imake configuration.  They are
     # bogus both because they are the default anyway, and because
     # using them would break gcc on systems where it needs fixed includes.
@@ -7339,7 +7349,7 @@ sed 's/^/| /' conftest.$ac_ext >&5
   if test -r "$ac_dir/X11/Xlib.h"; then
     ac_x_includes=$ac_dir
     break
-   fi
+  fi
 done
 fi
 
@@ -7399,8 +7409,8 @@ do
   for ac_extension in a so sl dylib la dll; do
     if test -r "$ac_dir/libX11.$ac_extension"; then
       ac_x_libraries=$ac_dir
-    break 2
-  fi
+      break 2
+    fi
   done
 done
 fi
@@ -7747,7 +7757,7 @@ if test $ac_cv_lib_dnet_stub_dnet_ntoa = yes; then
   X_EXTRA_LIBS="$X_EXTRA_LIBS -ldnet_stub"
 fi
 
-  fi
+    fi
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
@@ -7901,7 +7911,7 @@ sed 's/^/| /' conftest.$ac_ext >&5
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
 { echo "$as_me:$LINENO: result: $ac_cv_lib_nsl_gethostbyname" >&5
@@ -7967,7 +7977,7 @@ sed 's/^/| /' conftest.$ac_ext >&5
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
 { echo "$as_me:$LINENO: result: $ac_cv_lib_bsd_gethostbyname" >&5
@@ -7977,7 +7987,7 @@ if test $ac_cv_lib_bsd_gethostbyname = yes; then
 fi
 
       fi
-  fi
+    fi
 
     # lieder@skyler.mavd.honeywell.com says without -lsocket,
     # socket/setsockopt and other routines are undefined under SCO ODT
@@ -8436,8 +8446,8 @@ if test $ac_cv_lib_ipc_shmat = yes; then
   X_EXTRA_LIBS="$X_EXTRA_LIBS -lipc"
 fi
 
-		fi
-		fi
+    fi
+  fi
 
   # Check for libraries that X11R6 Xt/Xaw programs need.
   ac_save_LDFLAGS=$LDFLAGS
@@ -8533,8 +8543,8 @@ echo "${ECHO_T}Corrected X libraries to $x_libraries" >&6; }
     if test "`(uname) 2>/dev/null`" = SunOS &&
 					 uname -r | grep '^5' >/dev/null; then
       X_LIBS="$X_LIBS -R $x_libraries"
-	      fi
-      fi
+    fi
+  fi
 
   if test -d "$x_libraries" && test ! -d "$x_includes"; then
     x_includes=`echo "$x_libraries" | sed s/lib/include/`
@@ -8600,7 +8610,7 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
 
   if test "${no_x-no}" = yes; then
     with_x=no
-    else
+  else
     cat >>confdefs.h <<\_ACEOF
 #define HAVE_X11 1
 _ACEOF
@@ -8815,9 +8825,9 @@ echo $ECHO_N "checking if X11 header files implicitly declare return values... $
     cflags_save=$CFLAGS
         if test "$GCC" = yes; then
       CFLAGS="$CFLAGS $X_CFLAGS -Werror"
-     else
+    else
       CFLAGS="$CFLAGS $X_CFLAGS"
-	 fi
+    fi
     cat >conftest.$ac_ext <<_ACEOF
 /* confdefs.h.  */
 _ACEOF
@@ -8905,7 +8915,7 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-      CFLAGS=$cflags_save
+    CFLAGS=$cflags_save
 
     LDFLAGS="$ac_save_LDFLAGS"
 
@@ -9153,7 +9163,7 @@ fi
 echo "${ECHO_T}$enable_athena_check" >&6; }
   if test "x$enable_athena_check" = "xno"; then
     SKIP_ATHENA=YES
-	    fi
+  fi
 fi
 
 if test "x$SKIP_NEXTAW" != "xYES" -a "$enable_gui_canon" != "nextaw"; then
@@ -9170,7 +9180,7 @@ fi
 echo "${ECHO_T}$enable_nextaw_check" >&6; };
   if test "x$enable_nextaw_check" = "xno"; then
     SKIP_NEXTAW=YES
-	    fi
+  fi
 fi
 
 if test "x$SKIP_CARBON" != "xYES" -a "$enable_gui_canon" != "carbon"; then
@@ -9187,7 +9197,7 @@ fi
 echo "${ECHO_T}$enable_carbon_check" >&6; };
   if test "x$enable_carbon_check" = "xno"; then
     SKIP_CARBON=YES
-	fi
+  fi
 fi
 
 if test "x$SKIP_MACVIM" != "xYES" -a "$enable_gui_canon" != "macvim"; then
@@ -9210,7 +9220,7 @@ fi
 if test "x$MACOSX" = "xyes"; then
     if test x$prefix = xNONE; then
     prefix=/Applications
-        fi
+  fi
 
   if test -z "$SKIP_MACVIM" -a "x$COCOA" = "xyes"; then
     { echo "$as_me:$LINENO: checking for MacVim GUI" >&5
@@ -9228,7 +9238,7 @@ echo "${ECHO_T}yes" >&6; };
         datadir='${prefix}/Vim.app/Contents/Resources'
 
     CPPFLAGS="$CPPFLAGS -I$DEVELOPER_DIR/Headers/FlatCarbon"
-	fi
+  fi
 
   if test "$VIMNAME" = "vim"; then
     VIMNAME=Vim
@@ -9286,7 +9296,7 @@ for as_dir in $PATH
 do
   IFS=$as_save_IFS
   test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
+  for ac_exec_ext in '' $ac_executable_extensions; do
   if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
     ac_cv_path_PKG_CONFIG="$as_dir/$ac_word$ac_exec_ext"
     echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
@@ -9470,7 +9480,7 @@ echo "${ECHO_T}no" >&6; }
 #define HAVE_GTK_MULTIHEAD 1
 _ACEOF
 
-     fi
+    fi
                 if test -z "$SKIP_GNOME"; then
     {
 
@@ -9508,8 +9518,8 @@ if test "${with_gnome+set}" = set; then
 	LDFLAGS="$LDFLAGS -L$withval/lib"
 	CFLAGS="$CFLAGS -I$withval/include"
 	gnome_prefix=$withval/lib
-     fi
-         fi
+      fi
+    fi
 else
   want_gnome=yes
 fi
@@ -9575,22 +9585,22 @@ echo $ECHO_N "checking for location of Motif GUI includes... $ECHO_C" >&6; }
   for try in $gui_includes; do
     if test -f "$try/Xm/Xm.h"; then
       GUI_INC_LOC=$try
-      fi
+    fi
   done
   if test -n "$GUI_INC_LOC"; then
     if test "$GUI_INC_LOC" = /usr/include; then
       GUI_INC_LOC=
       { echo "$as_me:$LINENO: result: in default path" >&5
 echo "${ECHO_T}in default path" >&6; }
-      else
+    else
       { echo "$as_me:$LINENO: result: $GUI_INC_LOC" >&5
 echo "${ECHO_T}$GUI_INC_LOC" >&6; }
-      fi
+    fi
   else
     { echo "$as_me:$LINENO: result: <not found>" >&5
 echo "${ECHO_T}<not found>" >&6; }
     SKIP_MOTIF=YES
-        fi
+  fi
 fi
 
 
@@ -10124,17 +10134,17 @@ acfindx:
 EOF
     if (xmkmf) >/dev/null 2>/dev/null && test -f Makefile; then
       eval `${MAKE-make} acfindx 2>/dev/null | grep -v make`
-      fi
+    fi
     cd ..
     rm -fr conftestdir
-	fi
+  fi
   if test -z "$NARROW_PROTO"; then
     { echo "$as_me:$LINENO: result: no" >&5
 echo "${ECHO_T}no" >&6; }
-	else
+  else
     { echo "$as_me:$LINENO: result: $NARROW_PROTO" >&5
 echo "${ECHO_T}$NARROW_PROTO" >&6; }
-	fi
+  fi
 
 fi
 
@@ -11170,7 +11180,7 @@ sed 's/^/| /' conftest.$ac_ext >&5
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
 { echo "$as_me:$LINENO: result: $ac_cv_lib_elf_main" >&5
@@ -12730,7 +12740,7 @@ if ((ac__type_new_ *) 0)
 if (sizeof (ac__type_new_))
   return 0;
   ;
-    return 0;
+  return 0;
 }
 _ACEOF
 rm -f conftest.$ac_objext
@@ -12763,7 +12773,7 @@ fi
 { echo "$as_me:$LINENO: result: $ac_cv_type_ino_t" >&5
 echo "${ECHO_T}$ac_cv_type_ino_t" >&6; }
 if test $ac_cv_type_ino_t = yes; then
-      :
+  :
 else
 
 cat >>confdefs.h <<_ACEOF
@@ -12977,10 +12987,10 @@ fi
 if grep LiTTleEnDian conftest.$ac_objext >/dev/null ; then
   if test "$ac_cv_c_bigendian" = unknown; then
     ac_cv_c_bigendian=no
-    else
+  else
     # finding both strings is unlikely to happen, but who knows?
     ac_cv_c_bigendian=unknown
-    fi
+  fi
 fi
 else
   echo "$as_me: failed program was:" >&5
@@ -13335,7 +13345,7 @@ sed 's/^/| /' conftest.$ac_ext >&5
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
 ac_res=`eval echo '${'$as_ac_Lib'}'`
@@ -13469,7 +13479,7 @@ echo "$as_me: error: NOT FOUND!
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 fi
 
 { echo "$as_me:$LINENO: checking whether we talk terminfo" >&5
@@ -14022,7 +14032,7 @@ echo "${ECHO_T}no" >&6; }
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 else
   { echo "$as_me:$LINENO: result: no" >&5
 echo "${ECHO_T}no" >&6; }
@@ -15017,7 +15027,7 @@ _ACEOF
 ;;
 esac
 rm -f -r conftest*
-    fi
+  fi
 fi
 
 
@@ -15251,7 +15261,7 @@ echo "${ECHO_T}no" >&6; }
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
@@ -15522,7 +15532,7 @@ sed 's/^/| /' conftest.$ac_ext >&5
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
 { echo "$as_me:$LINENO: result: $ac_cv_lib_posix1e_acl_get_file" >&5
@@ -15649,7 +15659,7 @@ sed 's/^/| /' conftest.$ac_ext >&5
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
 { echo "$as_me:$LINENO: result: $ac_cv_lib_attr_fgetxattr" >&5
@@ -15777,7 +15787,7 @@ sed 's/^/| /' conftest.$ac_ext >&5
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
 { echo "$as_me:$LINENO: result: $ac_cv_lib_sec_acl_get" >&5
@@ -16543,8 +16553,8 @@ sed 's/^/| /' conftest.$ac_ext >&5
 	ac_lo=`expr $ac_mid + 1`
 			if test $ac_lo -le $ac_mid; then
 			  ac_lo= ac_hi=
-  break
-  fi
+			  break
+			fi
 			ac_mid=`expr 2 '*' $ac_mid + 1`
 fi
 
@@ -17954,7 +17964,7 @@ main ()
 	return 1;
       fprintf (f, "%ld\n", i);
     }
-   else
+  else
     {
       unsigned long int i = ulongval ();
       if (i != ((long int) (sizeof (ac__type_sizeof_))))
@@ -18397,7 +18407,7 @@ echo "${ECHO_T}no" >&6; }
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 else
   echo "$as_me: failed program was:" >&5
 sed 's/^/| /' conftest.$ac_ext >&5
@@ -18464,11 +18474,11 @@ else
   echo "$as_me: failed program was:" >&5
 sed 's/^/| /' conftest.$ac_ext >&5
 
-  ac_cv_lib_xpg4__xpg4_setrunelocale=no
+	ac_cv_lib_xpg4__xpg4_setrunelocale=no
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
 { echo "$as_me:$LINENO: result: $ac_cv_lib_xpg4__xpg4_setrunelocale" >&5
@@ -18548,7 +18558,7 @@ for as_dir in $PATH
 do
   IFS=$as_save_IFS
   test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
+  for ac_exec_ext in '' $ac_executable_extensions; do
   if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
     ac_cv_prog_MSGFMT="msgfmt"
     echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
@@ -19207,11 +19217,11 @@ echo "${ECHO_T}no" >&6; };
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
       { echo "$as_me:$LINENO: checking for dlsym()" >&5
 echo $ECHO_N "checking for dlsym()... $ECHO_C" >&6; }
   cat >conftest.$ac_ext <<_ACEOF
@@ -19320,11 +19330,11 @@ echo "${ECHO_T}no" >&6; };
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 elif test x${DLL} = xdl.h; then
 
 cat >>confdefs.h <<\_ACEOF
@@ -19439,11 +19449,11 @@ echo "${ECHO_T}no" >&6; };
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 fi
 
 rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
-    conftest$ac_exeext conftest.$ac_ext
+      conftest$ac_exeext conftest.$ac_ext
 fi
 
 for ac_header in setjmp.h
@@ -19792,7 +19802,7 @@ _ACEOF
 
 cat >>$CONFIG_STATUS <<\_ACEOF
 ## --------------------- ##
-## M4sh Initialization. ##
+## M4sh Initialization.  ##
 ## --------------------- ##
 
 # Be more Bourne compatible
@@ -19830,7 +19840,7 @@ if test "${PATH_SEPARATOR+set}" != set; then
   if (PATH="/nonexistent;."; conf$$.sh) >/dev/null 2>&1; then
     PATH_SEPARATOR=';'
   else
-  PATH_SEPARATOR=:
+    PATH_SEPARATOR=:
   fi
   rm -f conf$$.sh
 fi
@@ -19860,7 +19870,7 @@ for as_dir in $PATH
 do
   IFS=$as_save_IFS
   test -z "$as_dir" && as_dir=.
-    test -r "$as_dir/$0" && as_myself=$as_dir/$0 && break
+  test -r "$as_dir/$0" && as_myself=$as_dir/$0 && break
 done
 IFS=$as_save_IFS
 
@@ -20013,15 +20023,15 @@ else
 fi
 echo >conf$$.file
 if ln -s conf$$.file conf$$ 2>/dev/null; then
-    as_ln_s='ln -s'
-    # ... but there are two gotchas:
-    # 1) On MSYS, both `ln -s file dir' and `ln file dir' fail.
-    # 2) DJGPP < 2.04 has no symlinks; `ln -s' creates a wrapper executable.
+  as_ln_s='ln -s'
+  # ... but there are two gotchas:
+  # 1) On MSYS, both `ln -s file dir' and `ln file dir' fail.
+  # 2) DJGPP < 2.04 has no symlinks; `ln -s' creates a wrapper executable.
   # In both cases, we have to default to `cp -p'.
-    ln -s conf$$.file conf$$.dir 2>/dev/null && test ! -f conf$$.exe ||
+  ln -s conf$$.file conf$$.dir 2>/dev/null && test ! -f conf$$.exe ||
     as_ln_s='cp -p'
 elif ln conf$$.file conf$$ 2>/dev/null; then
-    as_ln_s=ln
+  as_ln_s=ln
 else
   as_ln_s='cp -p'
 fi
@@ -20104,10 +20114,10 @@ Usage: $0 [OPTIONS] [FILE]...
   -q, --quiet      do not print progress messages
   -d, --debug      don't remove temporary files
       --recheck    update $as_me by reconfiguring in the same conditions
-      --file=FILE[:TEMPLATE]
-                   instantiate the configuration file FILE
-      --header=FILE[:TEMPLATE]
-                   instantiate the configuration header FILE
+  --file=FILE[:TEMPLATE]
+		   instantiate the configuration file FILE
+  --header=FILE[:TEMPLATE]
+		   instantiate the configuration header FILE
 
 Configuration files:
 $config_files
@@ -20733,7 +20743,7 @@ cat >>$CONFIG_STATUS <<_ACEOF
   s&@infodir@&$infodir&g
   s&@localedir@&$localedir&g
   s&@mandir@&$mandir&g
-  s&\\\${datarootdir}&$datarootdir&g' ;;
+    s&\\\${datarootdir}&$datarootdir&g' ;;
 esac
 _ACEOF
 

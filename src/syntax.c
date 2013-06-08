@@ -3258,7 +3258,7 @@ syn_regexec(rmp, lnum, col, st)
     regmmatch_T	*rmp;
     linenr_T	lnum;
     colnr_T	col;
-    syn_time_T  *st;
+    syn_time_T  *st UNUSED;
 {
     int r;
 #ifdef FEAT_PROFILE
@@ -6577,6 +6577,27 @@ syntime_clear()
     }
 }
 
+#if defined(FEAT_CMDL_COMPL) || defined(PROTO)
+/*
+ * Function given to ExpandGeneric() to obtain the possible arguments of the
+ * ":syntime {on,off,clear,report}" command.
+ */
+    char_u *
+get_syntime_arg(xp, idx)
+    expand_T	*xp UNUSED;
+    int		idx;
+{
+    switch (idx)
+    {
+	case 0: return (char_u *)"on";
+	case 1: return (char_u *)"off";
+	case 2: return (char_u *)"clear";
+	case 3: return (char_u *)"report";
+    }
+    return NULL;
+}
+#endif
+
 typedef struct
 {
     proftime_T	total;
@@ -6610,7 +6631,9 @@ syntime_report()
 {
     int		idx;
     synpat_T	*spp;
+# ifdef FEAT_FLOAT
     proftime_T	tm;
+# endif
     int		len;
     proftime_T	total_total;
     int		total_count = 0;
@@ -6649,7 +6672,8 @@ syntime_report()
     }
 
     /* sort on total time */
-    qsort(ga.ga_data, (size_t)ga.ga_len, sizeof(time_entry_T), syn_compare_syntime);
+    qsort(ga.ga_data, (size_t)ga.ga_len, sizeof(time_entry_T),
+							 syn_compare_syntime);
 
     MSG_PUTS_TITLE(_("  TOTAL      COUNT  MATCH   SLOWEST     AVERAGE   NAME               PATTERN"));
     MSG_PUTS("\n");
@@ -6688,6 +6712,7 @@ syntime_report()
 	msg_outtrans_len(p->pattern, len);
 	MSG_PUTS("\n");
     }
+    ga_clear(&ga);
     if (!got_int)
     {
 	MSG_PUTS("\n");

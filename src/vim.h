@@ -785,7 +785,8 @@ extern char *(*dyn_libintl_textdomain)(const char *domainname);
 #define EXPAND_LOCALES		40
 #define EXPAND_HISTORY		41
 #define EXPAND_USER		42
-#define EXPAND_MACACTION	43
+#define EXPAND_SYNTIME		43
+#define EXPAND_MACACTION	44
 
 /* Values for exmode_active (0 is no exmode) */
 #define EXMODE_NORMAL		1
