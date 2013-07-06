@@ -83,10 +83,14 @@
 #define PY_USE_CAPSULE
 
 #define PyInt Py_ssize_t
-#define PyString_Check(obj) PyUnicode_Check(obj)
+#ifndef PyString_Check
+# define PyString_Check(obj) PyUnicode_Check(obj)
+#endif
 #define PyString_FromString(repr) PyUnicode_FromString(repr)
 #define PyString_FromFormat PyUnicode_FromFormat
-#define PyInt_Check(obj) PyLong_Check(obj)
+#ifndef PyInt_Check
+# define PyInt_Check(obj) PyLong_Check(obj)
+#endif
 #define PyInt_FromLong(i) PyLong_FromLong(i)
 #define PyInt_AsLong(obj) PyLong_AsLong(obj)
 #define Py_ssize_t_fmt "n"
@@ -126,7 +130,6 @@
 # define PyErr_PrintEx py3_PyErr_PrintEx
 # define PyErr_NoMemory py3_PyErr_NoMemory
 # define PyErr_Occurred py3_PyErr_Occurred
-# define PyErr_PrintEx py3_PyErr_PrintEx
 # define PyErr_SetNone py3_PyErr_SetNone
 # define PyErr_SetString py3_PyErr_SetString
 # define PyErr_SetObject py3_PyErr_SetObject
@@ -157,7 +160,9 @@
 # define PyDict_GetItemString py3_PyDict_GetItemString
 # define PyDict_Next py3_PyDict_Next
 # define PyMapping_Check py3_PyMapping_Check
-# define PyMapping_Keys py3_PyMapping_Keys
+# ifndef PyMapping_Keys
+#  define PyMapping_Keys py3_PyMapping_Keys
+# endif
 # define PyIter_Next py3_PyIter_Next
 # define PyObject_GetIter py3_PyObject_GetIter
 # define PyObject_Repr py3_PyObject_Repr
@@ -203,7 +208,9 @@
 # define PyUnicode_AsEncodedString py3_PyUnicode_AsEncodedString
 # undef PyBytes_AsString
 # define PyBytes_AsString py3_PyBytes_AsString
-# define PyBytes_AsStringAndSize py3_PyBytes_AsStringAndSize
+# ifndef PyBytes_AsStringAndSize
+#  define PyBytes_AsStringAndSize py3_PyBytes_AsStringAndSize
+# endif
 # undef PyBytes_FromString
 # define PyBytes_FromString py3_PyBytes_FromString
 # define PyFloat_FromDouble py3_PyFloat_FromDouble
@@ -403,6 +410,7 @@ static PyObject *p3imp_PyExc_KeyError;
 static PyObject *p3imp_PyExc_KeyboardInterrupt;
 static PyObject *p3imp_PyExc_TypeError;
 static PyObject *p3imp_PyExc_ValueError;
+static PyObject *p3imp_PyExc_SystemExit;
 static PyObject *p3imp_PyExc_RuntimeError;
 static PyObject *p3imp_PyExc_ImportError;
 static PyObject *p3imp_PyExc_OverflowError;
@@ -413,6 +421,7 @@ static PyObject *p3imp_PyExc_OverflowError;
 # define PyExc_KeyboardInterrupt p3imp_PyExc_KeyboardInterrupt
 # define PyExc_TypeError p3imp_PyExc_TypeError
 # define PyExc_ValueError p3imp_PyExc_ValueError
+# define PyExc_SystemExit p3imp_PyExc_SystemExit
 # define PyExc_RuntimeError p3imp_PyExc_RuntimeError
 # define PyExc_ImportError p3imp_PyExc_ImportError
 # define PyExc_OverflowError p3imp_PyExc_OverflowError
@@ -681,6 +690,7 @@ get_py3_exceptions()
     p3imp_PyExc_KeyboardInterrupt = PyDict_GetItemString(exdict, "KeyboardInterrupt");
     p3imp_PyExc_TypeError = PyDict_GetItemString(exdict, "TypeError");
     p3imp_PyExc_ValueError = PyDict_GetItemString(exdict, "ValueError");
+    p3imp_PyExc_SystemExit = PyDict_GetItemString(exdict, "SystemExit");
     p3imp_PyExc_RuntimeError = PyDict_GetItemString(exdict, "RuntimeError");
     p3imp_PyExc_ImportError = PyDict_GetItemString(exdict, "ImportError");
     p3imp_PyExc_OverflowError = PyDict_GetItemString(exdict, "OverflowError");
@@ -690,6 +700,7 @@ get_py3_exceptions()
     Py_XINCREF(p3imp_PyExc_KeyboardInterrupt);
     Py_XINCREF(p3imp_PyExc_TypeError);
     Py_XINCREF(p3imp_PyExc_ValueError);
+    Py_XINCREF(p3imp_PyExc_SystemExit);
     Py_XINCREF(p3imp_PyExc_RuntimeError);
     Py_XINCREF(p3imp_PyExc_ImportError);
     Py_XINCREF(p3imp_PyExc_OverflowError);

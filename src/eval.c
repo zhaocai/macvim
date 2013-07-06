@@ -8743,6 +8743,14 @@ f_append(argvars, rettv)
     typval_T	*tv;
     long	added = 0;
 
+    /* When coming here from Insert mode, sync undo, so that this can be
+     * undone separately from what was previously inserted. */
+    if (u_sync_once == 2)
+    {
+	u_sync_once = 1; /* notify that u_sync() was called */
+	u_sync(TRUE);
+    }
+
     lnum = get_tv_lnum(argvars);
     if (lnum >= 0
 	    && lnum <= curbuf->b_ml.ml_line_count
@@ -13755,6 +13763,7 @@ get_maparg(argvars, rettv, exact)
 	dict_add_nr_str(dict, "silent",  mp->m_silent  ? 1L : 0L, NULL);
 	dict_add_nr_str(dict, "sid",     (long)mp->m_script_ID, NULL);
 	dict_add_nr_str(dict, "buffer",  (long)buffer_local, NULL);
+	dict_add_nr_str(dict, "nowait",  mp->m_nowait  ? 1L : 0L, NULL);
 	dict_add_nr_str(dict, "mode",    0L, mapmode);
 
 	vim_free(lhs);
@@ -16435,6 +16444,15 @@ f_setline(argvars, rettv)
 	rettv->vval.v_number = 1;	/* FAIL */
 	if (line == NULL || lnum < 1 || lnum > curbuf->b_ml.ml_line_count + 1)
 	    break;
+
+	/* When coming here from Insert mode, sync undo, so that this can be
+	 * undone separately from what was previously inserted. */
+	if (u_sync_once == 2)
+	{
+	    u_sync_once = 1; /* notify that u_sync() was called */
+	    u_sync(TRUE);
+	}
+
 	if (lnum <= curbuf->b_ml.ml_line_count)
 	{
 	    /* existing line, replace it */
@@ -21118,6 +21136,7 @@ ex_function(eap)
     int		j;
     int		c;
     int		saved_did_emsg;
+    int		saved_wait_return = need_wait_return;
     char_u	*name = NULL;
     char_u	*p;
     char_u	*arg;
@@ -21449,7 +21468,10 @@ ex_function(eap)
     for (;;)
     {
 	if (KeyTyped)
+	{
 	    msg_scroll = TRUE;
+	    saved_wait_return = FALSE;
+	}
 	need_wait_return = FALSE;
 	sourcing_lnum_off = sourcing_lnum;
 
@@ -21760,6 +21782,7 @@ ret_free:
     vim_free(fudi.fd_newkey);
     vim_free(name);
     did_emsg |= saved_did_emsg;
+    need_wait_return |= saved_wait_return;
 }
 
 /*
