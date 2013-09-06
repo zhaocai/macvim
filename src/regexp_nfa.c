@@ -4209,10 +4209,11 @@ skip_add:
 	    break;
 
 	case NFA_MCLOSE:
-	    if (nfa_has_zend)
+	    if (nfa_has_zend && (REG_MULTI
+			? subs->norm.list.multi[0].end.lnum >= 0
+			: subs->norm.list.line[0].end != NULL))
 	    {
-		/* Do not overwrite the position set by \ze. If no \ze
-		 * encountered end will be set in nfa_regtry(). */
+		/* Do not overwrite the position set by \ze. */
 		subs = addstate(l, state->out, subs, pim, off);
 		break;
 	    }
@@ -5089,6 +5090,12 @@ nfa_regmatch(prog, start, submatch, m)
 	return FALSE;
     }
 #endif
+    /* Some patterns may take a long time to match, especially when using
+     * recursive_regmatch(). Allow interrupting them with CTRL-C. */
+    fast_breakcheck();
+    if (got_int)
+	return FALSE;
+
     nfa_match = FALSE;
 
     /* Allocate memory for the lists of nodes. */
@@ -5316,7 +5323,10 @@ nfa_regmatch(prog, start, submatch, m)
 		log_subsexpr(m);
 #endif
 		nfa_match = TRUE;
-		break;
+		/* See comment above at "goto nextchar". */
+		if (nextlist->n == 0)
+		    clen = 0;
+		goto nextchar;
 
 	    case NFA_START_INVISIBLE:
 	    case NFA_START_INVISIBLE_FIRST:
