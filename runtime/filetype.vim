@@ -116,7 +116,7 @@ au BufNewFile,BufRead .htaccess,*/etc/httpd/*.conf		setf apache
 au BufNewFile,BufRead *.a65			setf a65
 
 " Applescript
-au BufNewFile,BufRead *.scpt			setf applescript
+au BufNewFile,BufRead *.scpt,*.applescript	setf applescript
 
 " Applix ELF
 au BufNewFile,BufRead *.am
