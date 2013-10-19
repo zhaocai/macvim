@@ -2,9 +2,9 @@
 " Language:     Python
 " Maintainer:   Dmitry Vasiliev <dima at hlabs dot org>
 " URL:          https://github.com/hdima/python-syntax
-" Last Change:  2013-08-11
+" Last Change:  2013-08-31
 " Filenames:    *.py
-" Version:      3.3.4
+" Version:      3.3.5
 "
 " Based on python.vim (from Vim 6.1 distribution)
 " by Neil Schemenauer <nas at python dot ca>
@@ -29,6 +29,7 @@
 "   John Eikenberry
 "   Marc Weber
 "   Pedro Algarvio
+"   pydave at GitHub
 "   Will Gray
 "   Yuri Habrusiev
 "
@@ -72,6 +73,9 @@
 "    python_highlight_doctests              Highlight doc-tests
 "    python_print_as_function               Highlight 'print' statement as
 "                                           function for Python 2
+"    python_highlight_file_headers_as_comments
+"                                           Highlight shebang and coding
+"                                           headers as comments
 "
 "    python_highlight_all                   Enable all the options above
 "                                           NOTE: This option don't override
@@ -149,7 +153,7 @@ syn keyword pythonStatement     with
 syn keyword pythonStatement     def class nextgroup=pythonFunction skipwhite
 syn keyword pythonRepeat        for while
 syn keyword pythonConditional   if elif else
-syn keyword pythonPreCondit     import from
+syn keyword pythonImport        import from
 syn keyword pythonException     try except finally
 syn keyword pythonOperator      and in is not or
 
@@ -157,7 +161,7 @@ if s:Python2Syntax()
   if !s:Enabled("g:python_print_as_function")
     syn keyword pythonStatement  print
   endif
-  syn keyword pythonPreCondit   as
+  syn keyword pythonImport      as
   syn match   pythonFunction    "[a-zA-Z_][a-zA-Z0-9_]*" display contained
 else
   syn keyword pythonStatement   as nonlocal None
@@ -178,8 +182,10 @@ syn match   pythonDot        "\." display containedin=pythonDottedName
 "
 
 syn match   pythonComment	"#.*$" display contains=pythonTodo,@Spell
-syn match   pythonRun		"\%^#!.*$"
-syn match   pythonCoding	"\%^.*\%(\n.*\)\?#.*coding[:=]\s*[0-9A-Za-z-_.]\+.*$"
+if !s:Enabled("g:python_highlight_file_headers_as_comments")
+  syn match   pythonRun		"\%^#!.*$"
+  syn match   pythonCoding	"\%^.*\%(\n.*\)\?#.*coding[:=]\s*[0-9A-Za-z-_.]\+.*$"
+endif
 syn keyword pythonTodo		TODO FIXME XXX contained
 
 "
@@ -469,7 +475,7 @@ if version >= 508 || !exists("did_python_syn_inits")
   endif
 
   HiLink pythonStatement        Statement
-  HiLink pythonPreCondit        Statement
+  HiLink pythonImport           Include
   HiLink pythonFunction         Function
   HiLink pythonConditional      Conditional
   HiLink pythonRepeat           Repeat
@@ -481,8 +487,10 @@ if version >= 508 || !exists("did_python_syn_inits")
   HiLink pythonDot              Normal
 
   HiLink pythonComment          Comment
-  HiLink pythonCoding           Special
-  HiLink pythonRun              Special
+  if !s:Enabled("g:python_highlight_file_headers_as_comments")
+    HiLink pythonCoding           Special
+    HiLink pythonRun              Special
+  endif
   HiLink pythonTodo             Todo
 
   HiLink pythonError            Error
