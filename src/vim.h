@@ -43,7 +43,7 @@
  * it becomes zero.  This is likely a problem of not being able to run the
  * test program.  Other items from configure may also be wrong then!
  */
-# if (SIZEOF_INT == 0)
+# if (VIM_SIZEOF_INT == 0)
     Error: configure did not run properly.  Check auto/config.log.
 # endif
 
@@ -77,6 +77,10 @@
 # endif
 # include <floss.h>
 # define ROOT_UID 65535
+# define OLDXAW
+# if (_TANDEM_ARCH_ == 2 && __H_Series_RVU >= 621)
+#  define SA_ONSTACK_COMPATIBILITY
+# endif
 #else
 # define ROOT_UID 0
 #endif
@@ -130,6 +134,13 @@
 # endif
 #endif
 
+/* Check support for rendering options */
+#ifdef FEAT_GUI
+# if defined(FEAT_DIRECTX)
+#  define FEAT_RENDER_OPTIONS
+# endif
+#endif
+
 /* Visual Studio 2005 has 'deprecated' many of the standard CRT functions */
 #if _MSC_VER >= 1400
 # define _CRT_SECURE_NO_DEPRECATE
@@ -148,22 +159,22 @@
 #endif
 
 /*
- * SIZEOF_INT is used in feature.h, and the system-specific included files
- * need items from feature.h.  Therefore define SIZEOF_INT here.
+ * VIM_SIZEOF_INT is used in feature.h, and the system-specific included files
+ * need items from feature.h.  Therefore define VIM_SIZEOF_INT here.
  */
 #ifdef WIN3264
-# define SIZEOF_INT 4
+# define VIM_SIZEOF_INT 4
 #endif
 #ifdef MSDOS
 # ifdef DJGPP
 #  ifndef FEAT_GUI_GTK		/* avoid problems when generating prototypes */
-#   define SIZEOF_INT 4		/* 32 bit ints */
+#   define VIM_SIZEOF_INT 4	/* 32 bit ints */
 #  endif
 #  define DOS32
 #  define FEAT_CLIPBOARD
 # else
 #  ifndef FEAT_GUI_GTK		/* avoid problems when generating prototypes */
-#   define SIZEOF_INT 2		/* 16 bit ints */
+#   define VIM_SIZEOF_INT 2	/* 16 bit ints */
 #  endif
 #  define SMALL_MALLOC		/* 16 bit storage allocation */
 #  define DOS16
@@ -174,18 +185,18 @@
   /* Be conservative about sizeof(int). It could be 4 too. */
 # ifndef FEAT_GUI_GTK	/* avoid problems when generating prototypes */
 #  ifdef __GNUC__
-#   define SIZEOF_INT	4
+#   define VIM_SIZEOF_INT	4
 #  else
-#   define SIZEOF_INT	2
+#   define VIM_SIZEOF_INT	2
 #  endif
 # endif
 #endif
 #ifdef MACOS
 # if defined(__POWERPC__) || defined(MACOS_X) || defined(__fourbyteints__) \
   || defined(__MRC__) || defined(__SC__) || defined(__APPLE_CC__)/* MPW Compilers */
-#  define SIZEOF_INT 4
+#  define VIM_SIZEOF_INT 4
 # else
-#  define SIZEOF_INT 2
+#  define VIM_SIZEOF_INT 2
 # endif
 #endif
 
@@ -417,12 +428,12 @@ typedef		 long __w64     long_i;
 #define PRINTF_DECIMAL_LONG_U SCANF_DECIMAL_LONG_U
 
 /*
- * Only systems which use configure will have SIZEOF_OFF_T and SIZEOF_LONG
+ * Only systems which use configure will have SIZEOF_OFF_T and VIM_SIZEOF_LONG
  * defined, which is ok since those are the same systems which can have
  * varying sizes for off_t.  The other systems will continue to use "%ld" to
  * print off_t since off_t is simply a typedef to long for them.
  */
-#if defined(SIZEOF_OFF_T) && (SIZEOF_OFF_T > SIZEOF_LONG)
+#if defined(SIZEOF_OFF_T) && (SIZEOF_OFF_T > VIM_SIZEOF_LONG)
 # define LONG_LONG_OFF_T
 #endif
 
@@ -448,7 +459,7 @@ typedef unsigned char sattr_T;
 # ifdef UNICODE16
 typedef unsigned short u8char_T;    /* short should be 16 bits */
 # else
-#  if SIZEOF_INT >= 4
+#  if VIM_SIZEOF_INT >= 4
 typedef unsigned int u8char_T;	    /* int is 32 bits */
 #  else
 typedef unsigned long u8char_T;	    /* long should be 32 bits or more */
@@ -824,6 +835,7 @@ extern char *(*dyn_libintl_textdomain)(const char *domainname);
 #define EW_ICASE	0x100	/* ignore case */
 #define EW_NOERROR	0x200	/* no error for bad regexp */
 #define EW_NOTWILD	0x400	/* add match with literal name if exists */
+#define EW_KEEPDOLLAR	0x800	/* do not escape $, $var is expanded */
 /* Note: mostly EW_NOTFOUND and EW_SILENT are mutually exclusive: EW_NOTFOUND
  * is used when executing commands and EW_SILENT for interactive expanding. */
 
@@ -1315,6 +1327,7 @@ enum auto_event
     EVENT_SHELLFILTERPOST,	/* after ":1,2!cmd", ":w !cmd", ":r !cmd". */
     EVENT_TEXTCHANGED,		/* text was modified */
     EVENT_TEXTCHANGEDI,		/* text was modified in Insert mode*/
+    EVENT_CMDUNDEFINED,		/* command undefined */
     NUM_EVENTS			/* MUST be the last one */
 };
 
@@ -1608,7 +1621,7 @@ typedef unsigned short disptick_T;	/* display tick type */
  * With this we restrict the maximum line length to 1073741823. I guess this is
  * not a real problem. BTW:  Longer lines are split.
  */
-#if SIZEOF_INT >= 4
+#if VIM_SIZEOF_INT >= 4
 # ifdef __MVS__
 #  define MAXCOL (0x3fffffffL)		/* maximum column number, 30 bits */
 # else
@@ -1876,7 +1889,8 @@ typedef int proftime_T;	    /* dummy for function prototypes */
 #define VV_HLSEARCH	54
 #define VV_OLDFILES	55
 #define VV_WINDOWID	56
-#define VV_LEN		57	/* number of v: vars */
+#define VV_PROGPATH	57
+#define VV_LEN		58	/* number of v: vars */
 
 #ifdef FEAT_CLIPBOARD
 
@@ -2249,9 +2263,15 @@ typedef int VimClipboard;	/* This is required for the prototypes. */
 #define SOPT_BUF	0x20	/* Option has buffer-local value */
 #define SOPT_UNSET	0x40	/* Option does not have local value set */
 
+/* Option types for various functions in option.c */
 #define SREQ_GLOBAL	0	/* Request global option */
 #define SREQ_WIN	1	/* Request window-local option */
 #define SREQ_BUF	2	/* Request buffer-local option */
+
+/* Flags for get_reg_contents */
+#define GREG_NO_EXPR	1	/* Do not allow expression register */
+#define GREG_EXPR_SRC	2	/* Return expression itself for "=" register */
+#define GREG_LIST	4	/* Return list */
 
 /* Character used as separated in autoload function/variable names. */
 #define AUTOLOAD_CHAR '#'

@@ -1,0 +1,34 @@
+
+	abcdef hijklmn	pqrstuvwxyz_1060ABCDEFGHIJKLMNOP 
+
+Test 1: set linebreak
+    abcdef          
++hijklmn            
++pqrstuvwxyz_1060ABC
++DEFGHIJKLMNOP      
+
+Test 2: set linebreak + set list
+^Iabcdef hijklmn^I  
++pqrstuvwxyz_1060ABC
++DEFGHIJKLMNOP      
+                    
+
+Test 3: set linebreak nolist
+    abcdef          
++hijklmn            
++pqrstuvwxyz_1060ABC
++DEFGHIJKLMNOP      
+1	aaaaaaaaaaaaaaaaaa
+
+Test 4: set linebreak with tab and 1 line as long as screen: should break!
+1                   
++aaaaaaaaaaaaaaaaaa 
+~                   
+~                   
+_S_	 bla
+
+Test 5: set linebreak with conceal and set list and tab displayed by different char (line may not be truncated)
+Sabbbbbb bla        
+~                   
+~                   
+~                   

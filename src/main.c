@@ -322,6 +322,7 @@ main
     init_yank();		/* init yank buffers */
 
     alist_init(&global_alist);	/* Init the argument list to empty. */
+    global_alist.id = 0;
 
     /*
      * Set the default values for the options.
@@ -702,6 +703,11 @@ vim_main2(int argc UNUSED, char **argv UNUSED)
 	TIME_MSG("reading viminfo");
     }
 #endif
+#ifdef FEAT_EVAL
+    /* It's better to make v:oldfiles an empty list than NULL. */
+    if (get_vim_var_list(VV_OLDFILES) == NULL)
+	set_vim_var_list(VV_OLDFILES, list_alloc());
+#endif
 
 #ifdef FEAT_QUICKFIX
     /*
@@ -840,8 +846,7 @@ vim_main2(int argc UNUSED, char **argv UNUSED)
 #ifdef FEAT_CRYPT
     if (params.ask_for_key)
     {
-	(void)blowfish_self_test();
-	(void)get_crypt_key(TRUE, TRUE);
+	(void)crypt_get_key(TRUE, TRUE);
 	TIME_MSG("getting crypt key");
     }
 #endif
@@ -1048,13 +1053,11 @@ main_loop(cmdwin, noexmode)
     /* Setup to catch a terminating error from the X server.  Just ignore
      * it, restore the state and continue.  This might not always work
      * properly, but at least we don't exit unexpectedly when the X server
-     * exists while Vim is running in a console. */
+     * exits while Vim is running in a console. */
     if (!cmdwin && !noexmode && SETJMP(x_jump_env))
     {
 	State = NORMAL;
-# ifdef FEAT_VISUAL
 	VIsual_active = FALSE;
-# endif
 	got_int = TRUE;
 	need_wait_return = FALSE;
 	global_busy = FALSE;
@@ -1091,11 +1094,7 @@ main_loop(cmdwin, noexmode)
 		check_timestamps(FALSE);
 	    if (need_wait_return)	/* if wait_return still needed ... */
 		wait_return(FALSE);	/* ... call it now */
-	    if (need_start_insertmode && goto_im()
-#ifdef FEAT_VISUAL
-		    && !VIsual_active
-#endif
-		    )
+	    if (need_start_insertmode && goto_im() && !VIsual_active)
 	    {
 		need_start_insertmode = FALSE;
 		stuffReadbuff((char_u *)"i");	/* start insert mode next */
@@ -1197,7 +1196,7 @@ main_loop(cmdwin, noexmode)
 		diff_need_scrollbind = FALSE;
 	    }
 #endif
-#if defined(FEAT_FOLDING) && defined(FEAT_VISUAL)
+#if defined(FEAT_FOLDING)
 	    /* Include a closed fold completely in the Visual area. */
 	    foldAdjustVisual();
 #endif
@@ -1223,12 +1222,9 @@ main_loop(cmdwin, noexmode)
 	    update_topline();
 	    validate_cursor();
 
-#ifdef FEAT_VISUAL
 	    if (VIsual_active)
 		update_curbuf(INVERTED);/* update inverted part */
-	    else
-#endif
-		if (must_redraw)
+	    else if (must_redraw)
 		update_screen(0);
 	    else if (redraw_cmdline || clear_cmdline)
 		showmode();
@@ -1606,6 +1602,7 @@ parse_command_name(parmp)
 
 #ifdef FEAT_EVAL
     set_vim_var_string(VV_PROGNAME, initstr, -1);
+    set_vim_var_string(VV_PROGPATH, (char_u *)parmp->argv[0], -1);
 #endif
 
     if (TOLOWER_ASC(initstr[0]) == 'r')

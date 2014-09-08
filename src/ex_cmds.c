@@ -1012,7 +1012,18 @@ do_bang(addr_count, eap, forceit, do_in, do_out)
 
     if (bangredo)	    /* put cmd in redo buffer for ! command */
     {
-	AppendToRedobuffLit(prevcmd, -1);
+	/* If % or # appears in the command, it must have been escaped.
+	 * Reescape them, so that redoing them does not substitute them by the
+	 * buffername. */
+	char_u *cmd = vim_strsave_escaped(prevcmd, (char_u *)"%#");
+
+	if (cmd != NULL)
+	{
+	    AppendToRedobuffLit(cmd, -1);
+	    vim_free(cmd);
+	}
+	else
+	    AppendToRedobuffLit(prevcmd, -1);
 	AppendToRedobuff((char_u *)"\n");
 	bangredo = FALSE;
     }
@@ -1541,7 +1552,18 @@ make_filter_cmd(cmd, itmp, otmp)
     char_u	*buf;
     long_u	len;
 
-    len = (long_u)STRLEN(cmd) + 3;			/* "()" + NUL */
+#if (defined(UNIX) && !defined(ARCHIE)) || defined(OS2)
+    int		is_fish_shell;
+    char_u	*shell_name = get_isolated_shell_name();
+
+    /* Account for fish's different syntax for subshells */
+    is_fish_shell = (fnamecmp(shell_name, "fish") == 0);
+    vim_free(shell_name);
+    if (is_fish_shell)
+	len = (long_u)STRLEN(cmd) + 13;		/* "begin; " + "; end" + NUL */
+    else
+#endif
+	len = (long_u)STRLEN(cmd) + 3;			/* "()" + NUL */
     if (itmp != NULL)
 	len += (long_u)STRLEN(itmp) + 9;		/* " { < " + " } " */
     if (otmp != NULL)
@@ -1556,7 +1578,12 @@ make_filter_cmd(cmd, itmp, otmp)
      * redirecting input and/or output.
      */
     if (itmp != NULL || otmp != NULL)
-	vim_snprintf((char *)buf, len, "(%s)", (char *)cmd);
+    {
+	if (is_fish_shell)
+	    vim_snprintf((char *)buf, len, "begin; %s; end", (char *)cmd);
+	else
+	    vim_snprintf((char *)buf, len, "(%s)", (char *)cmd);
+    }
     else
 	STRCPY(buf, cmd);
     if (itmp != NULL)
@@ -1566,7 +1593,7 @@ make_filter_cmd(cmd, itmp, otmp)
     }
 #else
     /*
-     * for shells that don't understand braces around commands, at least allow
+     * For shells that don't understand braces around commands, at least allow
      * the use of commands in a pipe.
      */
     STRCPY(buf, cmd);
@@ -1977,11 +2004,14 @@ write_viminfo(file, forceit)
     {
 	fclose(fp_in);
 
-	/*
-	 * In case of an error keep the original viminfo file.
-	 * Otherwise rename the newly written file.
-	 */
-	if (viminfo_errcnt || vim_rename(tempname, fname) == -1)
+	/* In case of an error keep the original viminfo file.  Otherwise
+	 * rename the newly written file.  Give an error if that fails. */
+	if (viminfo_errcnt == 0 && vim_rename(tempname, fname) == -1)
+	{
+	    ++viminfo_errcnt;
+	    EMSG2(_("E886: Can't rename viminfo file to %s!"), fname);
+	}
+	if (viminfo_errcnt > 0)
 	    mch_remove(tempname);
 
 #ifdef WIN3264
@@ -3263,13 +3293,11 @@ do_ecmd(fnum, ffname, sfname, eap, newlnum, flags, oldwin)
 	goto theend;
     }
 
-#ifdef FEAT_VISUAL
     /*
      * End Visual mode before switching to another buffer, so the text can be
      * copied into the GUI selection buffer.
      */
     reset_VIsual();
-#endif
 
 #ifdef FEAT_AUTOCMD
     if ((command != NULL || newlnum > (linenr_T)0)
@@ -3334,6 +3362,12 @@ do_ecmd(fnum, ffname, sfname, eap, newlnum, flags, oldwin)
 #endif
 	    buf = buflist_new(ffname, sfname, 0L,
 		    BLN_CURBUF | ((flags & ECMD_SET_HELP) ? 0 : BLN_LISTED));
+#ifdef FEAT_AUTOCMD
+	    /* autocommands may change curwin and curbuf */
+	    if (oldwin != NULL)
+		oldwin = curwin;
+	    old_curbuf = curbuf;
+#endif
 	}
 	if (buf == NULL)
 	    goto theend;
@@ -3977,11 +4011,19 @@ ex_append(eap)
 	    eap->nextcmd = p;
 	}
 	else
+	{
+	    int save_State = State;
+
+	    /* Set State to avoid the cursor shape to be set to INSERT mode
+	     * when getline() returns. */
+	    State = CMDLINE;
 	    theline = eap->getline(
 #ifdef FEAT_EVAL
 		    eap->cstack->cs_looplevel > 0 ? -1 :
 #endif
 		    NUL, eap->cookie, indent);
+	    State = save_State;
+	}
 	lines_left = Rows - 1;
 	if (theline == NULL)
 	    break;
@@ -4099,12 +4141,12 @@ ex_z(eap)
      * 'scroll' */
     if (eap->forceit)
 	bigness = curwin->w_height;
-    else if (firstwin == lastwin)
-	bigness = curwin->w_p_scr * 2;
 #ifdef FEAT_WINDOWS
-    else
+    else if (firstwin != lastwin)
 	bigness = curwin->w_height - 3;
 #endif
+    else
+	bigness = curwin->w_p_scr * 2;
     if (bigness < 1)
 	bigness = 1;
 
@@ -4300,7 +4342,7 @@ do_sub(eap)
     pos_T	old_cursor = curwin->w_cursor;
     int		start_nsubs;
 #ifdef FEAT_EVAL
-    int         save_ma = 0;
+    int		save_ma = 0;
 #endif
 
     cmd = eap->arg;
@@ -4409,6 +4451,31 @@ do_sub(eap)
 	/* Vi compatibility quirk: repeating with ":s" keeps the cursor in the
 	 * last column after using "$". */
 	endcolumn = (curwin->w_curswant == MAXCOL);
+    }
+
+    /* Recognize ":%s/\n//" and turn it into a join command, which is much
+     * more efficient.
+     * TODO: find a generic solution to make line-joining operations more
+     * efficient, avoid allocating a string that grows in size.
+     */
+    if (pat != NULL && STRCMP(pat, "\\n") == 0
+	    && *sub == NUL
+	    && (*cmd == NUL || (cmd[1] == NUL && (*cmd == 'g' || *cmd == 'l'
+					     || *cmd == 'p' || *cmd == '#'))))
+    {
+	curwin->w_cursor.lnum = eap->line1;
+	if (*cmd == 'l')
+	    eap->flags = EXFLAG_LIST;
+	else if (*cmd == '#')
+	    eap->flags = EXFLAG_NR;
+	else if (*cmd == 'p')
+	    eap->flags = EXFLAG_PRINT;
+
+	(void)do_join(eap->line2 - eap->line1 + 1, FALSE, TRUE, FALSE, TRUE);
+	sub_nlines = sub_nsubs = eap->line2 - eap->line1 + 1;
+	(void)do_sub_msg(FALSE);
+	ex_may_print(eap);
+	return;
     }
 
     /*
@@ -5455,7 +5522,15 @@ ex_global(eap)
 	    smsg((char_u *)_("Pattern not found: %s"), pat);
     }
     else
+    {
+#ifdef FEAT_CLIPBOARD
+	start_global_changes();
+#endif
 	global_exe(cmd);
+#ifdef FEAT_CLIPBOARD
+	end_global_changes();
+#endif
+    }
 
     ml_clearmarked();	   /* clear rest of the marks */
     vim_regfree(regmatch.regprog);
@@ -5936,14 +6011,18 @@ find_help_tags(arg, num_matches, matches, keep_lang)
 			       "?", ":?", "?<CR>", "g?", "g?g?", "g??", "z?",
 			       "/\\?", "/\\z(\\)", "\\=", ":s\\=",
 			       "[count]", "[quotex]", "[range]",
-			       "[pattern]", "\\|", "\\%$"};
+			       "[pattern]", "\\|", "\\%$",
+			       "s/\\~", "s/\\U", "s/\\L",
+			       "s/\\1", "s/\\2", "s/\\3", "s/\\9"};
     static char *(rtable[]) = {"star", "gstar", "[star", "]star", ":star",
 			       "/star", "/\\\\star", "quotestar", "starstar",
 			       "cpo-star", "/\\\\(\\\\)", "/\\\\%(\\\\)",
 			       "?", ":?", "?<CR>", "g?", "g?g?", "g??", "z?",
 			       "/\\\\?", "/\\\\z(\\\\)", "\\\\=", ":s\\\\=",
 			       "\\[count]", "\\[quotex]", "\\[range]",
-			       "\\[pattern]", "\\\\bar", "/\\\\%\\$"};
+			       "\\[pattern]", "\\\\bar", "/\\\\%\\$",
+			       "s/\\\\\\~", "s/\\\\U", "s/\\\\L",
+			       "s/\\\\1", "s/\\\\2", "s/\\\\3", "s/\\\\9"};
     int flags;
 
     d = IObuff;		    /* assume IObuff is long enough! */
@@ -5982,7 +6061,7 @@ find_help_tags(arg, num_matches, matches, keep_lang)
 	  /* Replace:
 	   * "[:...:]" with "\[:...:]"
 	   * "[++...]" with "\[++...]"
-	   * "\{" with "\\{"
+	   * "\{" with "\\{"		   -- matching "} \}"
 	   */
 	    if ((arg[0] == '[' && (arg[1] == ':'
 			 || (arg[1] == '+' && arg[2] == '+')))
@@ -7231,7 +7310,10 @@ ex_sign(eap)
 	    else
 		/* ":sign place {id} file={fname}": change sign type */
 		lnum = buf_change_sign_type(buf, id, sp->sn_typenr);
-	    update_debug_sign(buf, lnum);
+	    if (lnum > 0)
+		update_debug_sign(buf, lnum);
+	    else
+		EMSG2(_("E885: Not possible to change sign %s"), sign_name);
 	}
 	else
 	    EMSG(_(e_invarg));

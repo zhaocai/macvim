@@ -1,7 +1,7 @@
 " Vim support file to detect file types
 "
 " Maintainer:	Bram Moolenaar <Bram@vim.org>
-" Last Change:	2013 Oct 06
+" Last Change:	2014 Aug 29
 
 " Listen very carefully, I will say this only once
 if exists("did_load_filetypes")
@@ -105,6 +105,9 @@ au BufNewFile,BufRead *.run			setf ampl
 
 " Ant
 au BufNewFile,BufRead build.xml			setf ant
+
+" Arduino
+au BufNewFile,BufRead *.ino,*.pde		setf arduino
 
 " Apache style config file
 au BufNewFile,BufRead proftpd.conf*		call s:StarSetf('apachestyle')
@@ -527,6 +530,9 @@ au BufNewFile,BufRead configure.in,configure.ac setf config
 " CUDA  Cumpute Unified Device Architecture
 au BufNewFile,BufRead *.cu			setf cuda
 
+" Dockerfile
+au BufNewFile,BufRead Dockerfile		setf=dockerfile
+
 " WildPackets EtherPeek Decoder
 au BufNewFile,BufRead *.dcd			setf dcd
 
@@ -535,6 +541,20 @@ au BufNewFile,BufRead *enlightenment/*.cfg	setf c
 
 " Eterm
 au BufNewFile,BufRead *Eterm/*.cfg		setf eterm
+
+" Euphoria 3 or 4
+au BufNewFile,BufRead *.eu,*.ew,*.ex,*.exu,*.exw  call s:EuphoriaCheck()
+if has("fname_case")
+   au BufNewFile,BufRead *.EU,*.EW,*.EX,*.EXU,*.EXW  call s:EuphoriaCheck()
+endif
+
+func! s:EuphoriaCheck()
+  if exists('g:filetype_euphoria')
+    exe 'setf ' . g:filetype_euphoria
+  else
+    setf euphoria3
+  endif
+endfunc
 
 " Lynx config files
 au BufNewFile,BufRead lynx.cfg			setf lynx
@@ -656,22 +676,26 @@ au BufNewFile,BufRead *.ed\(f\|if\|n\|o\)	setf edif
 " Embedix Component Description
 au BufNewFile,BufRead *.ecd			setf ecd
 
-" Eiffel or Specman
+" Eiffel or Specman or Euphoria
 au BufNewFile,BufRead *.e,*.E			call s:FTe()
 
 " Elinks configuration
 au BufNewFile,BufRead */etc/elinks.conf,*/.elinks/elinks.conf	setf elinks
 
 func! s:FTe()
-  let n = 1
-  while n < 100 && n < line("$")
-    if getline(n) =~ "^\\s*\\(<'\\|'>\\)\\s*$"
-      setf specman
-      return
-    endif
-    let n = n + 1
-  endwhile
-  setf eiffel
+  if exists('g:filetype_euphoria')
+    exe 'setf ' . g:filetype_euphoria
+  else
+    let n = 1
+    while n < 100 && n < line("$")
+      if getline(n) =~ "^\\s*\\(<'\\|'>\\)\\s*$"
+        setf specman
+        return
+      endif
+      let n = n + 1
+    endwhile
+    setf eiffel
+  endif
 endfunc
 
 " ERicsson LANGuage; Yaws is erlang too
@@ -790,6 +814,9 @@ au BufNewFile,BufRead {,.}gitolite.rc,example.gitolite.rc	setf perl
 " Gnuplot scripts
 au BufNewFile,BufRead *.gpi			setf gnuplot
 
+" Go (Google)
+au BufNewFile,BufRead *.go			setf go
+
 " GrADS scripts
 au BufNewFile,BufRead *.gs			setf grads
 
@@ -843,7 +870,7 @@ func! s:FThtml()
       setf xhtml
       return
     endif
-    if getline(n) =~ '{%\s*\(extends\|block\)\>'
+    if getline(n) =~ '{%\s*\(extends\|block\|load\)\>'
       setf htmldjango
       return
     endif
@@ -968,7 +995,7 @@ au BufNewFile,BufRead *.java,*.jav		setf java
 au BufNewFile,BufRead *.jj,*.jjt		setf javacc
 
 " JavaScript, ECMAScript
-au BufNewFile,BufRead *.js,*.javascript,*.es,*.jsx,*.json   setf javascript
+au BufNewFile,BufRead *.js,*.javascript,*.es,*.jsx   setf javascript
 
 " Java Server Pages
 au BufNewFile,BufRead *.jsp			setf jsp
@@ -986,11 +1013,17 @@ au BufNewFile,BufRead *.jgr			setf jgraph
 " Jovial
 au BufNewFile,BufRead *.jov,*.j73,*.jovial	setf jovial
 
+" JSON
+au BufNewFile,BufRead *.json,*.jsonp		setf json
+
 " Kixtart
 au BufNewFile,BufRead *.kix			setf kix
 
 " Kimwitu[++]
 au BufNewFile,BufRead *.k			setf kwt
+
+" Kivy
+au BufNewFile,BufRead *.kv			setf kivy
 
 " KDE script
 au BufNewFile,BufRead *.ks			setf kscript
@@ -1017,7 +1050,7 @@ au BufNewFile,BufRead *.ldif			setf ldif
 au BufNewFile,BufRead *.ld			setf ld
 
 " Lex
-au BufNewFile,BufRead *.lex,*.l			setf lex
+au BufNewFile,BufRead *.lex,*.l,*.lxx,*.l++	setf lex
 
 " Libao
 au BufNewFile,BufRead */etc/libao.conf,*/.libao	setf libao
@@ -1118,7 +1151,7 @@ au BufNewFile,BufRead *.map			setf map
 au BufNewFile,BufRead *.markdown,*.mdown,*.mkd,*.mkdn,*.mdwn,README.md  setf markdown
 
 " Mason
-au BufNewFile,BufRead *.mason,*.mhtml		setf mason
+au BufNewFile,BufRead *.mason,*.mhtml,*.comp	setf mason
 
 " Matlab or Objective C
 au BufNewFile,BufRead *.m			call s:FTm()
@@ -1171,6 +1204,9 @@ au BufNewFile,BufRead *.mp			setf mp
 
 " MGL
 au BufNewFile,BufRead *.mgl			setf mgl
+
+" MIX - Knuth assembly
+au BufNewFile,BufRead *.mix,*.mixal		setf mix
 
 " MMIX or VMS makefile
 au BufNewFile,BufRead *.mms			call s:FTmms()
@@ -1620,6 +1656,20 @@ if has("fname_case")
   au BufNewFile,BufRead *.Rnw,*.rnw,*.Snw,*.snw		setf rnoweb
 else
   au BufNewFile,BufRead *.rnw,*.snw			setf rnoweb
+endif
+
+" R Markdown file
+if has("fname_case")
+  au BufNewFile,BufRead *.Rmd,*.rmd,*.Smd,*.smd		setf rmd
+else
+  au BufNewFile,BufRead *.rmd,*.smd			setf rmd
+endif
+
+" R reStructuredText file
+if has("fname_case")
+  au BufNewFile,BufRead *.Rrst,*.rrst,*.Srst,*.srst	setf rrst
+else
+  au BufNewFile,BufRead *.rrst,*.srst			setf rrst
 endif
 
 " Rexx, Rebol or R
@@ -2237,6 +2287,9 @@ au BufNewFile,BufRead *.v			setf verilog
 " Verilog-AMS HDL
 au BufNewFile,BufRead *.va,*.vams		setf verilogams
 
+" SystemVerilog
+au BufNewFile,BufRead *.sv,*.svh		setf systemverilog
+
 " VHDL
 au BufNewFile,BufRead *.hdl,*.vhd,*.vhdl,*.vbe,*.vst  setf vhdl
 au BufNewFile,BufRead *.vhdl_[0-9]*		call s:StarSetf('vhdl')
@@ -2266,6 +2319,9 @@ au BufNewFile,BufRead vgrindefs			setf vgrindefs
 
 " VRML V1.0c
 au BufNewFile,BufRead *.wrl			setf vrml
+
+" Vroom (vim testing and executable documentation)
+au BufNewFile,BufRead *.vroom			setf vroom
 
 " Webmacro
 au BufNewFile,BufRead *.wm			setf webmacro
@@ -2409,7 +2465,7 @@ au BufNewFile,BufRead *.xsd			setf xsd
 au BufNewFile,BufRead *.xsl,*.xslt		setf xslt
 
 " Yacc
-au BufNewFile,BufRead *.yy			setf yacc
+au BufNewFile,BufRead *.yy,*.yxx,*.y++		setf yacc
 
 " Yacc or racc
 au BufNewFile,BufRead *.y			call s:FTy()
@@ -2634,7 +2690,7 @@ au BufNewFile,BufRead zsh*,zlog*		call s:StarSetf('zsh')
 
 " Plain text files, needs to be far down to not override others.  This avoids
 " the "conf" type being used if there is a line starting with '#'.
-au BufNewFile,BufRead *.txt,*.text		setf text
+au BufNewFile,BufRead *.txt,*.text,README	setf text
 
 
 " Use the filetype detect plugins.  They may overrule any of the previously

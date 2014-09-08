@@ -2464,6 +2464,9 @@ ex_listdo(eap)
 	 * great speed improvement. */
 	save_ei = au_event_disable(",Syntax");
 #endif
+#ifdef FEAT_CLIPBOARD
+    start_global_changes();
+#endif
 
     if (eap->cmdidx == CMD_windo
 	    || eap->cmdidx == CMD_tabdo
@@ -2590,6 +2593,9 @@ ex_listdo(eap)
 	apply_autocmds(EVENT_SYNTAX, curbuf->b_p_syn,
 					       curbuf->b_fname, TRUE, curbuf);
     }
+#endif
+#ifdef FEAT_CLIPBOARD
+    end_global_changes();
 #endif
 }
 
@@ -2750,8 +2756,8 @@ source_runtime(name, all)
  * used.
  * Returns OK when at least one match found, FAIL otherwise.
  *
- * If "name" is NULL calls callback for each entry in runtimepath. Cookie is 
- * passed by reference in this case, setting it to NULL indicates that callback 
+ * If "name" is NULL calls callback for each entry in runtimepath. Cookie is
+ * passed by reference in this case, setting it to NULL indicates that callback
  * has done its job.
  */
     int
@@ -4341,7 +4347,7 @@ find_locales()
     /* Find all available locales by running command "locale -a".  If this
      * doesn't work we won't have completion. */
     char_u *locale_a = get_cmd_output((char_u *)"locale -a",
-							NULL, SHELL_SILENT);
+						    NULL, SHELL_SILENT, NULL);
     if (locale_a == NULL)
 	return NULL;
     ga_init2(&locales_ga, sizeof(char_u *), 20);

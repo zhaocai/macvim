@@ -317,7 +317,7 @@
 
 /* Type used for indexes in the word tree need to be at least 4 bytes.  If int
  * is 8 bytes we could use something smaller, but what? */
-#if SIZEOF_INT > 3
+#if VIM_SIZEOF_INT > 3
 typedef int idx_T;
 #else
 typedef long idx_T;
@@ -2180,9 +2180,9 @@ spell_move_to(wp, dir, allwords, curline, attrp)
     char_u	*endp;
     hlf_T	attr;
     int		len;
-# ifdef FEAT_SYN_HL
+#ifdef FEAT_SYN_HL
     int		has_syntax = syntax_present(wp);
-# endif
+#endif
     int		col;
     int		can_spell;
     char_u	*buf = NULL;
@@ -2280,7 +2280,7 @@ spell_move_to(wp, dir, allwords, curline, attrp)
 						     : p - buf)
 						  > wp->w_cursor.col)))
 		    {
-# ifdef FEAT_SYN_HL
+#ifdef FEAT_SYN_HL
 			if (has_syntax)
 			{
 			    col = (int)(p - buf);
@@ -4234,7 +4234,9 @@ did_set_spelllang(wp)
     if (spl_copy == NULL)
 	goto theend;
 
+#ifdef FEAT_MBYTE
     wp->w_s->b_cjk = 0;
+#endif
 
     /* Loop over comma separated language names. */
     for (splp = spl_copy; *splp != NUL; )
@@ -4246,7 +4248,9 @@ did_set_spelllang(wp)
 
 	if (STRCMP(lang, "cjk") == 0)
 	{
+#ifdef FEAT_MBYTE
 	    wp->w_s->b_cjk = 1;
+#endif
 	    continue;
 	}
 
@@ -4504,6 +4508,7 @@ did_set_spelllang(wp)
 theend:
     vim_free(spl_copy);
     recursive = FALSE;
+    redraw_win_later(wp, NOT_VALID);
     return ret_msg;
 }
 
@@ -4697,7 +4702,25 @@ badword_captype(word, end)
     return flags;
 }
 
-# if defined(FEAT_MBYTE) || defined(EXITFREE) || defined(PROTO)
+/*
+ * Delete the internal wordlist and its .spl file.
+ */
+    void
+spell_delete_wordlist()
+{
+    char_u	fname[MAXPATHL];
+
+    if (int_wordlist != NULL)
+    {
+	mch_remove(int_wordlist);
+	int_wordlist_spl(fname);
+	mch_remove(fname);
+	vim_free(int_wordlist);
+	int_wordlist = NULL;
+    }
+}
+
+#if defined(FEAT_MBYTE) || defined(EXITFREE) || defined(PROTO)
 /*
  * Free all languages.
  */
@@ -4706,7 +4729,6 @@ spell_free_all()
 {
     slang_T	*slang;
     buf_T	*buf;
-    char_u	fname[MAXPATHL];
 
     /* Go through all buffers and handle 'spelllang'. <VN> */
     for (buf = firstbuf; buf != NULL; buf = buf->b_next)
@@ -4719,24 +4741,16 @@ spell_free_all()
 	slang_free(slang);
     }
 
-    if (int_wordlist != NULL)
-    {
-	/* Delete the internal wordlist and its .spl file */
-	mch_remove(int_wordlist);
-	int_wordlist_spl(fname);
-	mch_remove(fname);
-	vim_free(int_wordlist);
-	int_wordlist = NULL;
-    }
+    spell_delete_wordlist();
 
     vim_free(repl_to);
     repl_to = NULL;
     vim_free(repl_from);
     repl_from = NULL;
 }
-# endif
+#endif
 
-# if defined(FEAT_MBYTE) || defined(PROTO)
+#if defined(FEAT_MBYTE) || defined(PROTO)
 /*
  * Clear all spelling tables and reload them.
  * Used after 'encoding' is set and when ":mkspell" was used.
@@ -4769,7 +4783,7 @@ spell_reload()
 	}
     }
 }
-# endif
+#endif
 
 /*
  * Reload the spell file "fname" if it's loaded.
@@ -10178,7 +10192,6 @@ spell_suggest(count)
     if (no_spell_checking(curwin))
 	return;
 
-#ifdef FEAT_VISUAL
     if (VIsual_active)
     {
 	/* Use the Visually selected text as the bad word.  But reject
@@ -10196,10 +10209,8 @@ spell_suggest(count)
 	++badlen;
 	end_visual_mode();
     }
-    else
-#endif
-	/* Find the start of the badly spelled word. */
-	if (spell_move_to(curwin, FORWARD, TRUE, TRUE, NULL) == 0
+    /* Find the start of the badly spelled word. */
+    else if (spell_move_to(curwin, FORWARD, TRUE, TRUE, NULL) == 0
 	    || curwin->w_cursor.col > prev_cursor.col)
     {
 	/* No bad word or it starts after the cursor: use the word under the
@@ -12024,7 +12035,7 @@ suggest_trie_walk(su, lp, fword, soundfold)
 		/* Normal byte, go one level deeper.  If it's not equal to the
 		 * byte in the bad word adjust the score.  But don't even try
 		 * when the byte was already changed.  And don't try when we
-		 * just deleted this byte, accepting it is always cheaper then
+		 * just deleted this byte, accepting it is always cheaper than
 		 * delete + substitute. */
 		if (c == fword[sp->ts_fidx]
 #ifdef FEAT_MBYTE
@@ -13394,9 +13405,8 @@ add_sound_suggest(su, goodword, score, lp)
 
 	/* Lookup the word "orgnr" one of the two tries. */
 	n = 0;
-	wlen = 0;
 	wordcount = 0;
-	for (;;)
+	for (wlen = 0; wlen < MAXWLEN - 3; ++wlen)
 	{
 	    i = 1;
 	    if (wordcount == orgnr && byts[n + 1] == NUL)
@@ -13410,6 +13420,7 @@ add_sound_suggest(su, goodword, score, lp)
 		if (i > byts[n])	/* safety check */
 		{
 		    STRCPY(theword + wlen, "BAD");
+		    wlen += 3;
 		    goto badword;
 		}
 
@@ -13422,7 +13433,7 @@ add_sound_suggest(su, goodword, score, lp)
 		wordcount += wc;
 	    }
 
-	    theword[wlen++] = byts[n + i];
+	    theword[wlen] = byts[n + i];
 	    n = idxs[n + i];
 	}
 badword:

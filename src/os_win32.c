@@ -232,6 +232,94 @@ static int suppress_winsize = 1;	/* don't fiddle with console */
 
 static char_u *exe_path = NULL;
 
+static BOOL win8_or_later = FALSE;
+
+/*
+ * Version of ReadConsoleInput() that works with IME.
+ * Works around problems on Windows 8.
+ */
+    static BOOL
+read_console_input(
+    HANDLE	    hInput,
+    INPUT_RECORD    *lpBuffer,
+    DWORD	    nLength,
+    LPDWORD	    lpEvents)
+{
+    enum
+    {
+	IRSIZE = 10
+    };
+    static INPUT_RECORD s_irCache[IRSIZE];
+    static DWORD s_dwIndex = 0;
+    static DWORD s_dwMax = 0;
+    DWORD dwEvents;
+    int head;
+    int tail;
+    int i;
+
+    if (!win8_or_later)
+    {
+	if (nLength == -1)
+	    return PeekConsoleInput(hInput, lpBuffer, 1, lpEvents);
+	return ReadConsoleInput(hInput, lpBuffer, 1, &dwEvents);
+    }
+
+    if (s_dwMax == 0)
+    {
+	if (nLength == -1)
+	    return PeekConsoleInput(hInput, lpBuffer, 1, lpEvents);
+	if (!ReadConsoleInput(hInput, s_irCache, IRSIZE, &dwEvents))
+	    return FALSE;
+	s_dwIndex = 0;
+	s_dwMax = dwEvents;
+	if (dwEvents == 0)
+	{
+	    *lpEvents = 0;
+	    return TRUE;
+	}
+
+	if (s_dwMax > 1)
+	{
+	    head = 0;
+	    tail = s_dwMax - 1;
+	    while (head != tail)
+	    {
+		if (s_irCache[head].EventType == WINDOW_BUFFER_SIZE_EVENT
+			&& s_irCache[head + 1].EventType
+						  == WINDOW_BUFFER_SIZE_EVENT)
+		{
+		    /* Remove duplicate event to avoid flicker. */
+		    for (i = head; i < tail; ++i)
+			s_irCache[i] = s_irCache[i + 1];
+		    --tail;
+		    continue;
+		}
+		head++;
+	    }
+	    s_dwMax = tail + 1;
+	}
+    }
+
+    *lpBuffer = s_irCache[s_dwIndex];
+    if (nLength != -1 && ++s_dwIndex >= s_dwMax)
+	s_dwMax = 0;
+    *lpEvents = 1;
+    return TRUE;
+}
+
+/*
+ * Version of PeekConsoleInput() that works with IME.
+ */
+    static BOOL
+peek_console_input(
+    HANDLE	    hInput,
+    INPUT_RECORD    *lpBuffer,
+    DWORD	    nLength,
+    LPDWORD	    lpEvents)
+{
+    return read_console_input(hInput, lpBuffer, -1, lpEvents);
+}
+
     static void
 get_exe_name(void)
 {
@@ -516,10 +604,10 @@ static PSETHANDLEINFORMATION pSetHandleInformation;
     static BOOL
 win32_enable_privilege(LPTSTR lpszPrivilege, BOOL bEnable)
 {
-    BOOL             bResult;
-    LUID             luid;
-    HANDLE           hToken;
-    TOKEN_PRIVILEGES tokenPrivileges;
+    BOOL		bResult;
+    LUID		luid;
+    HANDLE		hToken;
+    TOKEN_PRIVILEGES	tokenPrivileges;
 
     if (!OpenProcessToken(GetCurrentProcess(),
 		TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
@@ -531,7 +619,7 @@ win32_enable_privilege(LPTSTR lpszPrivilege, BOOL bEnable)
 	return FALSE;
     }
 
-    tokenPrivileges.PrivilegeCount           = 1;
+    tokenPrivileges.PrivilegeCount	     = 1;
     tokenPrivileges.Privileges[0].Luid       = luid;
     tokenPrivileges.Privileges[0].Attributes = bEnable ?
 						    SE_PRIVILEGE_ENABLED : 0;
@@ -562,6 +650,10 @@ PlatformId(void)
 	GetVersionEx(&ovi);
 
 	g_PlatformId = ovi.dwPlatformId;
+
+	if ((ovi.dwMajorVersion == 6 && ovi.dwMinorVersion >= 2)
+		|| ovi.dwMajorVersion > 6)
+	    win8_or_later = TRUE;
 
 #ifdef HAVE_ACL
 	/*
@@ -1117,7 +1209,7 @@ decode_mouse_event(
 			INPUT_RECORD ir;
 			MOUSE_EVENT_RECORD* pmer2 = &ir.Event.MouseEvent;
 
-			PeekConsoleInput(g_hConIn, &ir, 1, &cRecords);
+			peek_console_input(g_hConIn, &ir, 1, &cRecords);
 
 			if (cRecords == 0 || ir.EventType != MOUSE_EVENT
 				|| !(pmer2->dwButtonState & LEFT_RIGHT))
@@ -1126,7 +1218,7 @@ decode_mouse_event(
 			{
 			    if (pmer2->dwEventFlags != MOUSE_MOVED)
 			    {
-				ReadConsoleInput(g_hConIn, &ir, 1, &cRecords);
+				read_console_input(g_hConIn, &ir, 1, &cRecords);
 
 				return decode_mouse_event(pmer2);
 			    }
@@ -1134,10 +1226,10 @@ decode_mouse_event(
 				     s_yOldMouse == pmer2->dwMousePosition.Y)
 			    {
 				/* throw away spurious mouse move */
-				ReadConsoleInput(g_hConIn, &ir, 1, &cRecords);
+				read_console_input(g_hConIn, &ir, 1, &cRecords);
 
 				/* are there any more mouse events in queue? */
-				PeekConsoleInput(g_hConIn, &ir, 1, &cRecords);
+				peek_console_input(g_hConIn, &ir, 1, &cRecords);
 
 				if (cRecords==0 || ir.EventType != MOUSE_EVENT)
 				    break;
@@ -1374,7 +1466,7 @@ WaitForChar(long msec)
 	}
 
 	cRecords = 0;
-	PeekConsoleInput(g_hConIn, &ir, 1, &cRecords);
+	peek_console_input(g_hConIn, &ir, 1, &cRecords);
 
 #ifdef FEAT_MBYTE_IME
 	if (State & CMDLINE && msg_row == Rows - 1)
@@ -1405,7 +1497,7 @@ WaitForChar(long msec)
 		if (ir.Event.KeyEvent.uChar.UnicodeChar == 0
 			&& ir.Event.KeyEvent.wVirtualKeyCode == 13)
 		{
-		    ReadConsoleInput(g_hConIn, &ir, 1, &cRecords);
+		    read_console_input(g_hConIn, &ir, 1, &cRecords);
 		    continue;
 		}
 #endif
@@ -1414,7 +1506,7 @@ WaitForChar(long msec)
 		    return TRUE;
 	    }
 
-	    ReadConsoleInput(g_hConIn, &ir, 1, &cRecords);
+	    read_console_input(g_hConIn, &ir, 1, &cRecords);
 
 	    if (ir.EventType == FOCUS_EVENT)
 		handle_focus_event(ir);
@@ -1484,7 +1576,7 @@ tgetch(int *pmodifiers, char_u *pch2)
 	    return 0;
 # endif
 #endif
-	if (ReadConsoleInput(g_hConIn, &ir, 1, &cRecords) == 0)
+	if (read_console_input(g_hConIn, &ir, 1, &cRecords) == 0)
 	{
 	    if (did_create_conin)
 		read_error_exit();
@@ -1693,13 +1785,14 @@ mch_inchar(
 #endif
 	    {
 		int	n = 1;
+		int     conv = FALSE;
 
-		/* A key may have one or two bytes. */
 		typeahead[typeaheadlen] = c;
 		if (ch2 != NUL)
 		{
-		    typeahead[typeaheadlen + 1] = ch2;
-		    ++n;
+		    typeahead[typeaheadlen + 1] = 3;
+		    typeahead[typeaheadlen + 2] = ch2;
+		    n += 2;
 		}
 #ifdef FEAT_MBYTE
 		/* Only convert normal characters, not special keys.  Need to
@@ -1708,12 +1801,31 @@ mch_inchar(
 		if (input_conv.vc_type != CONV_NONE
 						&& (ch2 == NUL || c != K_NUL))
 		{
+		    conv = TRUE;
 		    typeaheadlen -= unconverted;
 		    n = convert_input_safe(typeahead + typeaheadlen,
 				n + unconverted, TYPEAHEADLEN - typeaheadlen,
 				rest == NULL ? &rest : NULL, &restlen);
 		}
 #endif
+
+		if (conv)
+		{
+		    char_u *p = typeahead + typeaheadlen;
+		    char_u *e = typeahead + TYPEAHEADLEN;
+
+		    while (*p && p < e)
+		    {
+			if (*p == K_NUL)
+			{
+			    ++p;
+			    mch_memmove(p + 1, p, ((size_t)(e - p)) - 1);
+			    *p = 3;
+			    ++n;
+			}
+			++p;
+		    }
+		}
 
 		/* Use the ALT key to set the 8th bit of the character
 		 * when it's one byte, the 8th bit isn't set yet and not
@@ -1790,10 +1902,12 @@ theend:
  * TODO: Should somehow check if it's really executable.
  */
     static int
-executable_exists(char *name)
+executable_exists(char *name, char_u **path)
 {
     char	*dum;
     char	fname[_MAX_PATH];
+    char	*curpath, *newpath;
+    long	n;
 
 #ifdef FEAT_MBYTE
     if (enc_codepage >= 0 && (int)GetACP() != enc_codepage)
@@ -1801,11 +1915,19 @@ executable_exists(char *name)
 	WCHAR	*p = enc_to_utf16(name, NULL);
 	WCHAR	fnamew[_MAX_PATH];
 	WCHAR	*dumw;
-	long	n;
+	WCHAR	*wcurpath, *wnewpath;
 
 	if (p != NULL)
 	{
-	    n = (long)SearchPathW(NULL, p, NULL, _MAX_PATH, fnamew, &dumw);
+	    wcurpath = _wgetenv(L"PATH");
+	    wnewpath = (WCHAR*)alloc((unsigned)(wcslen(wcurpath) + 3)
+							    * sizeof(WCHAR));
+	    if (wnewpath == NULL)
+		return FALSE;
+	    wcscpy(wnewpath, L".;");
+	    wcscat(wnewpath, wcurpath);
+	    n = (long)SearchPathW(wnewpath, p, NULL, _MAX_PATH, fnamew, &dumw);
+	    vim_free(wnewpath);
 	    vim_free(p);
 	    if (n > 0 || GetLastError() != ERROR_CALL_NOT_IMPLEMENTED)
 	    {
@@ -1813,16 +1935,29 @@ executable_exists(char *name)
 		    return FALSE;
 		if (GetFileAttributesW(fnamew) & FILE_ATTRIBUTE_DIRECTORY)
 		    return FALSE;
+		if (path != NULL)
+		    *path = utf16_to_enc(fnamew, NULL);
 		return TRUE;
 	    }
 	    /* Retry with non-wide function (for Windows 98). */
 	}
     }
 #endif
-    if (SearchPath(NULL, name, NULL, _MAX_PATH, fname, &dum) == 0)
+
+    curpath = getenv("PATH");
+    newpath = (char*)alloc((unsigned)(STRLEN(curpath) + 3));
+    if (newpath == NULL)
+	return FALSE;
+    STRCPY(newpath, ".;");
+    STRCAT(newpath, curpath);
+    n = (long)SearchPath(newpath, name, NULL, _MAX_PATH, fname, &dum);
+    vim_free(newpath);
+    if (n == 0)
 	return FALSE;
     if (mch_isdir(fname))
 	return FALSE;
+    if (path != NULL)
+	*path = vim_strsave(fname);
     return TRUE;
 }
 
@@ -1904,7 +2039,7 @@ mch_init(void)
 	    vimrun_path = (char *)vim_strsave(vimrun_location);
 	    s_dont_use_vimrun = FALSE;
 	}
-	else if (executable_exists("vimrun.exe"))
+	else if (executable_exists("vimrun.exe", NULL))
 	    s_dont_use_vimrun = FALSE;
 
 	/* Don't give the warning for a missing vimrun.exe right now, but only
@@ -1918,7 +2053,7 @@ mch_init(void)
      * If "finstr.exe" doesn't exist, use "grep -n" for 'grepprg'.
      * Otherwise the default "findstr /n" is used.
      */
-    if (!executable_exists("findstr.exe"))
+    if (!executable_exists("findstr.exe", NULL))
 	set_option_value((char_u *)"grepprg", 0, (char_u *)"grep -n", 0);
 
 #ifdef FEAT_CLIPBOARD
@@ -2509,7 +2644,7 @@ fname_casew(
     WCHAR		*porig, *porigPrev;
     int			flen;
     WIN32_FIND_DATAW	fb;
-    HANDLE		hFind;
+    HANDLE		hFind = INVALID_HANDLE_VALUE;
     int			c;
     int			slen;
 
@@ -2528,8 +2663,8 @@ fname_casew(
 	/* copy leading drive letter */
 	*ptrue++ = *porig++;
 	*ptrue++ = *porig++;
-	*ptrue = NUL;	    /* in case nothing follows */
     }
+    *ptrue = NUL;	    /* in case nothing follows */
 
     while (*porig != NUL)
     {
@@ -2673,8 +2808,8 @@ fname_case(
 	/* copy leading drive letter */
 	*ptrue++ = *porig++;
 	*ptrue++ = *porig++;
-	*ptrue = NUL;	    /* in case nothing follows */
     }
+    *ptrue = NUL;	    /* in case nothing follows */
 
     while (*porig != NUL)
     {
@@ -2768,6 +2903,28 @@ mch_get_user_name(
     char szUserName[256 + 1];	/* UNLEN is 256 */
     DWORD cch = sizeof szUserName;
 
+#ifdef FEAT_MBYTE
+    if (enc_codepage >= 0 && (int)GetACP() != enc_codepage)
+    {
+	WCHAR wszUserName[256 + 1];	/* UNLEN is 256 */
+	DWORD wcch = sizeof(wszUserName) / sizeof(WCHAR);
+
+	if (GetUserNameW(wszUserName, &wcch))
+	{
+	    char_u  *p = utf16_to_enc(wszUserName, NULL);
+
+	    if (p != NULL)
+	    {
+		vim_strncpy(s, p, len - 1);
+		vim_free(p);
+		return OK;
+	    }
+	}
+	else if (GetLastError() != ERROR_CALL_NOT_IMPLEMENTED)
+	    return FAIL;
+	/* Retry with non-wide function (for Windows 98). */
+    }
+#endif
     if (GetUserName(szUserName, &cch))
     {
 	vim_strncpy(s, szUserName, len - 1);
@@ -2788,6 +2945,28 @@ mch_get_host_name(
 {
     DWORD cch = len;
 
+#ifdef FEAT_MBYTE
+    if (enc_codepage >= 0 && (int)GetACP() != enc_codepage)
+    {
+	WCHAR wszHostName[256 + 1];
+	DWORD wcch = sizeof(wszHostName) / sizeof(WCHAR);
+
+	if (GetComputerNameW(wszHostName, &wcch))
+	{
+	    char_u  *p = utf16_to_enc(wszHostName, NULL);
+
+	    if (p != NULL)
+	    {
+		vim_strncpy(s, p, len - 1);
+		vim_free(p);
+		return;
+	    }
+	}
+	else if (GetLastError() != ERROR_CALL_NOT_IMPLEMENTED)
+	    return;
+	/* Retry with non-wide function (for Windows 98). */
+    }
+#endif
     if (!GetComputerName(s, &cch))
 	vim_strncpy(s, "PC (Win32 Vim)", len - 1);
 }
@@ -2834,6 +3013,8 @@ mch_dirname(
 		return OK;
 	    }
 	}
+	else if (GetLastError() != ERROR_CALL_NOT_IMPLEMENTED)
+	    return FAIL;
 	/* Retry with non-wide function (for Windows 98). */
     }
 #endif
@@ -2841,18 +3022,17 @@ mch_dirname(
 }
 
 /*
- * get file permissions for `name'
- * -1 : error
- * else mode_t
+ * Get file permissions for "name".
+ * Return mode_t or -1 for error.
  */
     long
 mch_getperm(char_u *name)
 {
     struct stat st;
-    int n;
+    int		n;
 
     n = mch_stat(name, &st);
-    return n == 0 ? (int)st.st_mode : -1;
+    return n == 0 ? (long)(unsigned short)st.st_mode : -1L;
 }
 
 
@@ -2875,7 +3055,7 @@ mch_setperm(char_u *name, long perm)
 	{
 	    n = _wchmod(p, perm);
 	    vim_free(p);
-	    if (n == -1 && GetLastError() != ERROR_CALL_NOT_IMPLEMENTED)
+	    if (n == -1 && g_PlatformId == VER_PLATFORM_WIN32_NT)
 		return FAIL;
 	    /* Retry with non-wide function (for Windows 98). */
 	}
@@ -3094,8 +3274,7 @@ win32_fileinfo(char_u *fname, BY_HANDLE_FILE_INFORMATION *info)
  * -1 : error
  * else FILE_ATTRIBUTE_* defined in winnt.h
  */
-    static
-    int
+    static int
 win32_getattrs(char_u *name)
 {
     int		attr;
@@ -3194,7 +3373,7 @@ mch_writable(char_u *name)
  * Return -1 if unknown.
  */
     int
-mch_can_exe(char_u *name)
+mch_can_exe(char_u *name, char_u **path)
 {
     char_u	buf[_MAX_PATH];
     int		len = (int)STRLEN(name);
@@ -3207,7 +3386,7 @@ mch_can_exe(char_u *name)
      * this with a Unix-shell like 'shell'. */
     if (vim_strchr(gettail(name), '.') != NULL
 			       || strstr((char *)gettail(p_sh), "sh") != NULL)
-	if (executable_exists((char *)name))
+	if (executable_exists((char *)name, path))
 	    return TRUE;
 
     /*
@@ -3229,7 +3408,7 @@ mch_can_exe(char_u *name)
 	}
 	else
 	    copy_option_part(&p, buf + len, _MAX_PATH - len, ";");
-	if (executable_exists((char *)buf))
+	if (executable_exists((char *)buf, path))
 	    return TRUE;
     }
     return FALSE;
@@ -3787,6 +3966,50 @@ mch_set_winsize_now(void)
 }
 #endif /* FEAT_GUI_W32 */
 
+    static BOOL
+vim_create_process(
+    char		*cmd,
+    BOOL		inherit_handles,
+    DWORD		flags,
+    STARTUPINFO		*si,
+    PROCESS_INFORMATION *pi)
+{
+#  ifdef FEAT_MBYTE
+    if (enc_codepage >= 0 && (int)GetACP() != enc_codepage)
+    {
+	WCHAR	*wcmd = enc_to_utf16(cmd, NULL);
+
+	if (wcmd != NULL)
+	{
+	    BOOL ret;
+	    ret = CreateProcessW(
+		NULL,			/* Executable name */
+		wcmd,			/* Command to execute */
+		NULL,			/* Process security attributes */
+		NULL,			/* Thread security attributes */
+		inherit_handles,	/* Inherit handles */
+		flags,			/* Creation flags */
+		NULL,			/* Environment */
+		NULL,			/* Current directory */
+		(LPSTARTUPINFOW)si,	/* Startup information */
+		pi);			/* Process information */
+	    vim_free(wcmd);
+	    return ret;
+	}
+    }
+#endif
+    return CreateProcess(
+	NULL,			/* Executable name */
+	cmd,			/* Command to execute */
+	NULL,			/* Process security attributes */
+	NULL,			/* Thread security attributes */
+	inherit_handles,	/* Inherit handles */
+	flags,			/* Creation flags */
+	NULL,			/* Environment */
+	NULL,			/* Current directory */
+	si,			/* Startup information */
+	pi);			/* Process information */
+}
 
 
 #if defined(FEAT_GUI_W32) || defined(PROTO)
@@ -3833,18 +4056,8 @@ mch_system_classic(char *cmd, int options)
 	cmd += 3;
 
     /* Now, run the command */
-    CreateProcess(NULL,			/* Executable name */
-		  cmd,			/* Command to execute */
-		  NULL,			/* Process security attributes */
-		  NULL,			/* Thread security attributes */
-		  FALSE,		/* Inherit handles */
-		  CREATE_DEFAULT_ERROR_MODE |	/* Creation flags */
-			CREATE_NEW_CONSOLE,
-		  NULL,			/* Environment */
-		  NULL,			/* Current directory */
-		  &si,			/* Startup information */
-		  &pi);			/* Process information */
-
+    vim_create_process(cmd, FALSE,
+	    CREATE_DEFAULT_ERROR_MODE |	CREATE_NEW_CONSOLE, &si, &pi);
 
     /* Wait for the command to terminate before continuing */
     if (g_PlatformId != VER_PLATFORM_WIN32s)
@@ -4176,22 +4389,11 @@ mch_system_piped(char *cmd, int options)
 	    p = cmd;
     }
 
-    /* Now, run the command */
-    CreateProcess(NULL,			/* Executable name */
-		  p,			/* Command to execute */
-		  NULL,			/* Process security attributes */
-		  NULL,			/* Thread security attributes */
-
-		  // this command can be litigious, handle inheritance was
-		  // deactivated for pending temp file, but, if we deactivate
-		  // it, the pipes don't work for some reason.
-		  TRUE,			/* Inherit handles, first deactivated,
-					 * but needed */
-		  CREATE_DEFAULT_ERROR_MODE, /* Creation flags */
-		  NULL,			/* Environment */
-		  NULL,			/* Current directory */
-		  &si,			/* Startup information */
-		  &pi);			/* Process information */
+    /* Now, run the command.
+     * About "Inherit handles" being TRUE: this command can be litigious,
+     * handle inheritance was deactivated for pending temp file, but, if we
+     * deactivate it, the pipes don't work for some reason. */
+     vim_create_process(p, TRUE, CREATE_DEFAULT_ERROR_MODE, &si, &pi);
 
     if (p != cmd)
 	vim_free(p);
@@ -4218,10 +4420,10 @@ mch_system_piped(char *cmd, int options)
     {
 	MSG	msg;
 
-	if (PeekMessage(&msg, (HWND)NULL, 0, 0, PM_REMOVE))
+	if (pPeekMessage(&msg, (HWND)NULL, 0, 0, PM_REMOVE))
 	{
 	    TranslateMessage(&msg);
-	    DispatchMessage(&msg);
+	    pDispatchMessage(&msg);
 	}
 
 	/* write pipe information in the window */
@@ -4409,7 +4611,25 @@ mch_system(char *cmd, int options)
 }
 #else
 
-# define mch_system(c, o) system(c)
+# ifdef FEAT_MBYTE
+    static int
+mch_system(char *cmd, int options)
+{
+    if (enc_codepage >= 0 && (int)GetACP() != enc_codepage)
+    {
+	WCHAR	*wcmd = enc_to_utf16(cmd, NULL);
+	if (wcmd != NULL)
+	{
+	    int ret = _wsystem(wcmd);
+	    vim_free(wcmd);
+	    return ret;
+	}
+    }
+    return system(cmd);
+}
+# else
+#  define mch_system(c, o) system(c)
+# endif
 
 #endif
 
@@ -4494,6 +4714,7 @@ mch_call_shell(
 	    DWORD		flags = CREATE_NEW_CONSOLE;
 	    char_u		*p;
 
+	    ZeroMemory(&si, sizeof(si));
 	    si.cb = sizeof(si);
 	    si.lpReserved = NULL;
 	    si.lpDesktop = NULL;
@@ -4577,16 +4798,7 @@ mch_call_shell(
 	     * inherit our handles which causes unpleasant dangling swap
 	     * files if we exit before the spawned process
 	     */
-	    if (CreateProcess(NULL,		// Executable name
-		    newcmd,			// Command to execute
-		    NULL,			// Process security attributes
-		    NULL,			// Thread security attributes
-		    FALSE,			// Inherit handles
-		    flags,			// Creation flags
-		    NULL,			// Environment
-		    NULL,			// Current directory
-		    &si,			// Startup information
-		    &pi))			// Process information
+	    if (vim_create_process(newcmd, FALSE, flags, &si, &pi))
 		x = 0;
 	    else
 	    {
@@ -4599,9 +4811,9 @@ mch_call_shell(
 	    if (newcmd != cmdbase)
 		vim_free(newcmd);
 
-	    if (si.hStdInput != NULL)
+	    if (si.dwFlags == STARTF_USESTDHANDLES && si.hStdInput != NULL)
 	    {
-		/* Close the handle to \\.\NUL */
+		/* Close the handle to \\.\NUL created above. */
 		CloseHandle(si.hStdInput);
 	    }
 	    /* Close the handles to the subprocess, so that it goes away */
@@ -5885,7 +6097,7 @@ mch_open(char *name, int flags, int mode)
 	{
 	    f = _wopen(wn, flags, mode);
 	    vim_free(wn);
-	    if (f >= 0)
+	    if (f >= 0 || g_PlatformId == VER_PLATFORM_WIN32_NT)
 		return f;
 	    /* Retry with non-wide function (for Windows 98). Can't use
 	     * GetLastError() here and it's unclear what errno gets set to if
@@ -5936,7 +6148,7 @@ mch_fopen(char *name, char *mode)
 	_set_fmode(oldMode);
 # endif
 
-	if (f != NULL)
+	if (f != NULL || g_PlatformId == VER_PLATFORM_WIN32_NT)
 	    return f;
 	/* Retry with non-wide function (for Windows 98). Can't use
 	 * GetLastError() here and it's unclear what errno gets set to if
@@ -6271,6 +6483,7 @@ get_cmd_argsW(char ***argvp)
 		    while (i > 0)
 			free(argv[--i]);
 		    free(argv);
+		    argv = NULL;
 		    argc = 0;
 		}
 	    }
