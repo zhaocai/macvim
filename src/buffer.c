@@ -211,7 +211,12 @@ open_buffer(read_stdin, eap, flags)
 
     /* if first time loading this buffer, init b_chartab[] */
     if (curbuf->b_flags & BF_NEVERLOADED)
+    {
 	(void)buf_init_chartab(curbuf, FALSE);
+#ifdef FEAT_CINDENT
+	parse_cino(curbuf);
+#endif
+    }
 
     /*
      * Set/reset the Changed flag first, autocmds may change the buffer.
@@ -366,7 +371,11 @@ close_buffer(win, buf, action, abort_if_last)
 	unload_buf = TRUE;
 #endif
 
-    if (win != NULL)
+    if (win != NULL
+#ifdef FEAT_WINDOWS
+	&& win_valid(win)	/* in case autocommands closed the window */
+#endif
+	    )
     {
 	/* Set b_last_cursor when closing the last window for the buffer.
 	 * Remember the last cursor position and window options of the buffer.
@@ -675,8 +684,16 @@ free_buffer(buf)
 #endif
 #ifdef FEAT_AUTOCMD
     aubuflocal_remove(buf);
+    if (autocmd_busy)
+    {
+	/* Do not free the buffer structure while autocommands are executing,
+	 * it's still needed. Free it when autocmd_busy is reset. */
+	buf->b_next = au_pending_free_buf;
+	au_pending_free_buf = buf;
+    }
+    else
 #endif
-    vim_free(buf);
+	vim_free(buf);
 }
 
 /*
@@ -993,6 +1010,50 @@ do_bufdel(command, arg, addr_count, start_bnr, end_bnr, forceit)
 #if defined(FEAT_LISTCMDS) || defined(FEAT_PYTHON) \
 	|| defined(FEAT_PYTHON3) || defined(PROTO)
 
+static int	empty_curbuf __ARGS((int close_others, int forceit, int action));
+
+/*
+ * Make the current buffer empty.
+ * Used when it is wiped out and it's the last buffer.
+ */
+    static int
+empty_curbuf(close_others, forceit, action)
+    int close_others;
+    int forceit;
+    int action;
+{
+    int	    retval;
+    buf_T   *buf = curbuf;
+
+    if (action == DOBUF_UNLOAD)
+    {
+	EMSG(_("E90: Cannot unload last buffer"));
+	return FAIL;
+    }
+
+    if (close_others)
+    {
+	/* Close any other windows on this buffer, then make it empty. */
+#ifdef FEAT_WINDOWS
+	close_windows(buf, TRUE);
+#endif
+    }
+
+    setpcmark();
+    retval = do_ecmd(0, NULL, NULL, NULL, ECMD_ONE,
+					  forceit ? ECMD_FORCEIT : 0, curwin);
+
+    /*
+     * do_ecmd() may create a new buffer, then we have to delete
+     * the old one.  But do_ecmd() may have done that already, check
+     * if the buffer still exists.
+     */
+    if (buf != curbuf && buf_valid(buf) && buf->b_nwindows == 0)
+	close_buffer(NULL, buf, action, FALSE);
+    if (!close_others)
+	need_fileinfo = FALSE;
+    return retval;
+}
 /*
  * Implementation of the commands for the buffer list.
  *
@@ -1113,7 +1174,6 @@ do_buffer(action, start, dir, count, forceit)
     if (unload)
     {
 	int	forward;
-	int	retval;
 
 	/* When unloading or deleting a buffer that's already unloaded and
 	 * unlisted: fail silently. */
@@ -1154,30 +1214,7 @@ do_buffer(action, start, dir, count, forceit)
 	    if (bp->b_p_bl && bp != buf)
 		break;
 	if (bp == NULL && buf == curbuf)
-	{
-	    if (action == DOBUF_UNLOAD)
-	    {
-		EMSG(_("E90: Cannot unload last buffer"));
-		return FAIL;
-	    }
-
-	    /* Close any other windows on this buffer, then make it empty. */
-#ifdef FEAT_WINDOWS
-	    close_windows(buf, TRUE);
-#endif
-	    setpcmark();
-	    retval = do_ecmd(0, NULL, NULL, NULL, ECMD_ONE,
-					  forceit ? ECMD_FORCEIT : 0, curwin);
-
-	    /*
-	     * do_ecmd() may create a new buffer, then we have to delete
-	     * the old one.  But do_ecmd() may have done that already, check
-	     * if the buffer still exists.
-	     */
-	    if (buf != curbuf && buf_valid(buf) && buf->b_nwindows == 0)
-		close_buffer(NULL, buf, action, FALSE);
-	    return retval;
-	}
+	    return empty_curbuf(TRUE, forceit, action);
 
 #ifdef FEAT_WINDOWS
 	/*
@@ -1211,7 +1248,8 @@ do_buffer(action, start, dir, count, forceit)
 
 	/*
 	 * Deleting the current buffer: Need to find another buffer to go to.
-	 * There must be another, otherwise it would have been handled above.
+	 * There should be another, otherwise it would have been handled
+	 * above.  However, autocommands may have deleted all buffers.
 	 * First use au_new_curbuf, if it is valid.
 	 * Then prefer the buffer we most recently visited.
 	 * Else try to find one that is loaded, after the current buffer,
@@ -1310,6 +1348,13 @@ do_buffer(action, start, dir, count, forceit)
 	}
     }
 
+    if (buf == NULL)
+    {
+	/* Autocommands must have wiped out all other buffers.  Only option
+	 * now is to make the current buffer empty. */
+	return empty_curbuf(FALSE, forceit, action);
+    }
+
     /*
      * make buf current buffer
      */
@@ -1403,10 +1448,8 @@ set_curbuf(buf, action)
 	curwin->w_alt_fnum = curbuf->b_fnum; /* remember alternate file */
     buflist_altfpos(curwin);			 /* remember curpos */
 
-#ifdef FEAT_VISUAL
     /* Don't restart Select mode after switching to another buffer. */
     VIsual_reselect = FALSE;
-#endif
 
     /* close_windows() or apply_autocmds() may change curbuf */
     prevbuf = curbuf;
@@ -1654,7 +1697,11 @@ buflist_new(ffname, sfname, lnum, flags)
 	    buf->b_p_bl = TRUE;
 #ifdef FEAT_AUTOCMD
 	    if (!(flags & BLN_DUMMY))
+	    {
 		apply_autocmds(EVENT_BUFADD, NULL, NULL, FALSE, buf);
+		if (!buf_valid(buf))
+		    return NULL;
+	    }
 #endif
 	}
 	return buf;
@@ -1830,8 +1877,14 @@ buflist_new(ffname, sfname, lnum, flags)
     if (!(flags & BLN_DUMMY))
     {
 	apply_autocmds(EVENT_BUFNEW, NULL, NULL, FALSE, buf);
+	if (!buf_valid(buf))
+	    return NULL;
 	if (flags & BLN_LISTED)
+	{
 	    apply_autocmds(EVENT_BUFADD, NULL, NULL, FALSE, buf);
+	    if (!buf_valid(buf))
+		return NULL;
+	}
 # ifdef FEAT_EVAL
 	if (aborting())		/* autocmds may abort script processing */
 	    return NULL;
@@ -1948,6 +2001,10 @@ free_buf_options(buf, free_p_ff)
     clear_string_option(&buf->b_p_qe);
 #endif
     buf->b_p_ar = -1;
+    buf->b_p_ul = NO_LOCAL_UNDOLEVEL;
+#ifdef FEAT_LISP
+    clear_string_option(&buf->b_p_lw);
+#endif
 }
 
 /*
@@ -4072,7 +4129,8 @@ build_stl_str_hl(wp, out, outlen, fmt, use_sandbox, fillchar,
 		item[curitem].minwid = -syn_namen2id(t, (int)(s - t));
 		curitem++;
 	    }
-	    ++s;
+	    if (*s != NUL)
+		++s;
 	    continue;
 	}
 
@@ -5481,6 +5539,10 @@ buf_addsign(buf, id, lnum, typenr)
     return;
 }
 
+/*
+ * For an existing, placed sign "markId" change the type to "typenr".
+ * Returns the line number of the sign, or zero if the sign is not found.
+ */
     linenr_T
 buf_change_sign_type(buf, markId, typenr)
     buf_T	*buf;		/* buffer to store sign in */
@@ -5649,6 +5711,14 @@ buf_delete_signs(buf)
 {
     signlist_T	*next;
 
+    /* When deleting the last sign need to redraw the windows to remove the
+     * sign column. Not when curwin is NULL (this means we're exiting). */
+    if (buf->b_signlist != NULL && curwin != NULL)
+    {
+	redraw_buf_later(buf, NOT_VALID);
+	changed_cline_bef_curs();
+    }
+
     while (buf->b_signlist != NULL)
     {
 	next = buf->b_signlist->next;
@@ -5667,11 +5737,7 @@ buf_delete_all_signs()
 
     for (buf = firstbuf; buf != NULL; buf = buf->b_next)
 	if (buf->b_signlist != NULL)
-	{
-	    /* Need to redraw the windows to remove the sign column. */
-	    redraw_buf_later(buf, NOT_VALID);
 	    buf_delete_signs(buf);
-	}
 }
 
 /*

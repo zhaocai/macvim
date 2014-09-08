@@ -289,6 +289,9 @@ ml_open(buf)
     buf->b_ml.ml_chunksize = NULL;
 #endif
 
+    if (cmdmod.noswapfile)
+	buf->b_p_swf = FALSE;
+
     /*
      * When 'updatecount' is non-zero swap file may be opened later.
      */
@@ -606,7 +609,7 @@ ml_setname(buf)
 	 * When 'updatecount' is 0 and 'noswapfile' there is no swap file.
 	 * For help files we will make a swap file now.
 	 */
-	if (p_uc != 0)
+	if (p_uc != 0 && !cmdmod.noswapfile)
 	    ml_open_file(buf);	    /* create a swap file */
 	return;
     }
@@ -719,7 +722,7 @@ ml_open_file(buf)
     char_u	*dirp;
 
     mfp = buf->b_ml.ml_mfp;
-    if (mfp == NULL || mfp->mf_fd >= 0 || !buf->b_p_swf)
+    if (mfp == NULL || mfp->mf_fd >= 0 || !buf->b_p_swf || cmdmod.noswapfile)
 	return;		/* nothing to do */
 
 #ifdef FEAT_SPELL
@@ -841,8 +844,11 @@ ml_close_all(del_file)
     for (buf = firstbuf; buf != NULL; buf = buf->b_next)
 	ml_close(buf, del_file && ((buf->b_flags & BF_PRESERVED) == 0
 				 || vim_strchr(p_cpo, CPO_PRESERVE) == NULL));
+#ifdef FEAT_SPELL
+    spell_delete_wordlist();	/* delete the internal wordlist */
+#endif
 #ifdef TEMPDIRNAMES
-    vim_deltempdir();	    /* delete created temp directory */
+    vim_deltempdir();		/* delete created temp directory */
 #endif
 }
 
@@ -4014,6 +4020,13 @@ get_file_in_dir(fname, dname)
     else
 	retval = concat_fnames(dname, tail, TRUE);
 
+#ifdef WIN3264
+    if (retval != NULL)
+	for (t = gettail(retval); *t != NUL; mb_ptr_adv(t))
+	    if (*t == ':')
+		*t = '%';
+#endif
+
     return retval;
 }
 
@@ -4137,11 +4150,28 @@ findswapname(buf, dirp, old_fname)
 #ifndef SHORT_FNAME
     int		r;
 #endif
+    char_u	*buf_fname = buf->b_fname;
 
 #if !defined(SHORT_FNAME) \
-		     && ((!defined(UNIX) && !defined(OS2)) || defined(ARCHIE))
+		&& ((!defined(UNIX) && !defined(OS2)) || defined(ARCHIE))
 # define CREATE_DUMMY_FILE
     FILE	*dummyfd = NULL;
+
+# ifdef WIN3264
+    if (buf_fname != NULL && !mch_isFullName(buf_fname)
+				       && vim_strchr(gettail(buf_fname), ':'))
+    {
+	char_u *t;
+
+	buf_fname = vim_strsave(buf_fname);
+	if (buf_fname == NULL)
+	    buf_fname = buf->b_fname;
+	else
+	    for (t = gettail(buf_fname); *t != NUL; mb_ptr_adv(t))
+		if (*t == ':')
+		    *t = '%';
+    }
+# endif
 
     /*
      * If we start editing a new file, e.g. "test.doc", which resides on an
@@ -4150,9 +4180,9 @@ findswapname(buf, dirp, old_fname)
      * this problem we temporarily create "test.doc".  Don't do this when the
      * check below for a 8.3 file name is used.
      */
-    if (!(buf->b_p_sn || buf->b_shortname) && buf->b_fname != NULL
-					     && mch_getperm(buf->b_fname) < 0)
-	dummyfd = mch_fopen((char *)buf->b_fname, "w");
+    if (!(buf->b_p_sn || buf->b_shortname) && buf_fname != NULL
+					     && mch_getperm(buf_fname) < 0)
+	dummyfd = mch_fopen((char *)buf_fname, "w");
 #endif
 
     /*
@@ -4171,7 +4201,7 @@ findswapname(buf, dirp, old_fname)
     if (dir_name == NULL)	    /* out of memory */
 	fname = NULL;
     else
-	fname = makeswapname(buf->b_fname, buf->b_ffname, buf, dir_name);
+	fname = makeswapname(buf_fname, buf->b_ffname, buf, dir_name);
 
     for (;;)
     {
@@ -4204,7 +4234,7 @@ findswapname(buf, dirp, old_fname)
 	     * It either contains two dots, is longer than 8 chars, or starts
 	     * with a dot.
 	     */
-	    tail = gettail(buf->b_fname);
+	    tail = gettail(buf_fname);
 	    if (       vim_strchr(tail, '.') != NULL
 		    || STRLEN(tail) > (size_t)8
 		    || *gettail(fname) == '.')
@@ -4273,7 +4303,7 @@ findswapname(buf, dirp, old_fname)
 		    {
 			buf->b_shortname = TRUE;
 			vim_free(fname);
-			fname = makeswapname(buf->b_fname, buf->b_ffname,
+			fname = makeswapname(buf_fname, buf->b_ffname,
 							       buf, dir_name);
 			continue;	/* try again with b_shortname set */
 		    }
@@ -4344,7 +4374,7 @@ findswapname(buf, dirp, old_fname)
 		{
 		    buf->b_shortname = TRUE;
 		    vim_free(fname);
-		    fname = makeswapname(buf->b_fname, buf->b_ffname,
+		    fname = makeswapname(buf_fname, buf->b_ffname,
 							       buf, dir_name);
 		    continue;	    /* try again with '.' replaced with '_' */
 		}
@@ -4356,7 +4386,7 @@ findswapname(buf, dirp, old_fname)
 	     * viewing a help file or when the path of the file is different
 	     * (happens when all .swp files are in one directory).
 	     */
-	    if (!recoverymode && buf->b_fname != NULL
+	    if (!recoverymode && buf_fname != NULL
 				&& !buf->b_help && !(buf->b_flags & BF_DUMMY))
 	    {
 		int		fd;
@@ -4433,7 +4463,7 @@ findswapname(buf, dirp, old_fname)
 		    {
 			fclose(dummyfd);
 			dummyfd = NULL;
-			mch_remove(buf->b_fname);
+			mch_remove(buf_fname);
 			did_use_dummy = TRUE;
 		    }
 #endif
@@ -4448,7 +4478,7 @@ findswapname(buf, dirp, old_fname)
 		     * user anyway.
 		     */
 		    if (swap_exists_action != SEA_NONE
-			    && has_autocmd(EVENT_SWAPEXISTS, buf->b_fname, buf))
+			    && has_autocmd(EVENT_SWAPEXISTS, buf_fname, buf))
 			choice = do_swapexists(buf, fname);
 
 		    if (choice == 0)
@@ -4549,7 +4579,7 @@ findswapname(buf, dirp, old_fname)
 #ifdef CREATE_DUMMY_FILE
 		    /* Going to try another name, need the dummy file again. */
 		    if (did_use_dummy)
-			dummyfd = mch_fopen((char *)buf->b_fname, "w");
+			dummyfd = mch_fopen((char *)buf_fname, "w");
 #endif
 		}
 	    }
@@ -4581,8 +4611,12 @@ findswapname(buf, dirp, old_fname)
     if (dummyfd != NULL)	/* file has been created temporarily */
     {
 	fclose(dummyfd);
-	mch_remove(buf->b_fname);
+	mch_remove(buf_fname);
     }
+#endif
+#ifdef WIN3264
+    if (buf_fname != buf->b_fname)
+	vim_free(buf_fname);
 #endif
     return fname;
 }
@@ -4883,7 +4917,7 @@ ml_crypt_prepare(mfp, offset, reading)
 	 * block for the salt. */
 	vim_snprintf((char *)salt, sizeof(salt), "%ld", (long)offset);
 	bf_key_init(key, salt, (int)STRLEN(salt));
-	bf_ofb_init(seed, MF_SEED_LEN);
+	bf_cfb_init(seed, MF_SEED_LEN);
     }
 }
 

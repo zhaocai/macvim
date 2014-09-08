@@ -31,9 +31,7 @@ virtual_active()
     if (virtual_op != MAYBE)
 	return virtual_op;
     return (ve_flags == VE_ALL
-# ifdef FEAT_VISUAL
 	    || ((ve_flags & VE_BLOCK) && VIsual_active && VIsual_mode == Ctrl_V)
-# endif
 	    || ((ve_flags & VE_INSERT) && (State & INSERT)));
 }
 
@@ -149,9 +147,7 @@ coladvance2(pos, addspaces, finetune, wcol)
 
     one_more = (State & INSERT)
 		    || restart_edit != NUL
-#ifdef FEAT_VISUAL
 		    || (VIsual_active && *p_sel != 'o')
-#endif
 #ifdef FEAT_VIRTUALEDIT
 		    || ((ve_flags & VE_ONEMORE) && wcol < MAXCOL)
 #endif
@@ -205,10 +201,10 @@ coladvance2(pos, addspaces, finetune, wcol)
 	{
 	    /* Count a tab for what it's worth (if list mode not on) */
 #ifdef FEAT_LINEBREAK
-	    csize = win_lbr_chartabsize(curwin, ptr, col, &head);
+	    csize = win_lbr_chartabsize(curwin, line, ptr, col, &head);
 	    mb_ptr_adv(ptr);
 #else
-	    csize = lbr_chartabsize_adv(&ptr, col);
+	    csize = lbr_chartabsize_adv(line, &ptr, col);
 #endif
 	    col += csize;
 	}
@@ -487,7 +483,7 @@ get_cursor_rel_lnum(wp, lnum)
 	{
 	    while (lnum > cursor)
 	    {
-		(void)hasFolding(lnum, &lnum, NULL);
+		(void)hasFoldingWin(wp, lnum, &lnum, NULL, TRUE, NULL);
 		/* if lnum and cursor are in the same fold,
 		 * now lnum <= cursor */
 		if (lnum > cursor)
@@ -499,7 +495,7 @@ get_cursor_rel_lnum(wp, lnum)
 	{
 	    while (lnum < cursor)
 	    {
-		(void)hasFolding(lnum, NULL, &lnum);
+		(void)hasFoldingWin(wp, lnum, NULL, &lnum, TRUE, NULL);
 		/* if lnum and cursor are in the same fold,
 		 * now lnum >= cursor */
 		if (lnum < cursor)
@@ -570,9 +566,7 @@ check_cursor_col_win(win)
 	 * - in Visual mode and 'selection' isn't "old"
 	 * - 'virtualedit' is set */
 	if ((State & INSERT) || restart_edit
-#ifdef FEAT_VISUAL
 		|| (VIsual_active && *p_sel != 'o')
-#endif
 #ifdef FEAT_VIRTUALEDIT
 		|| (ve_flags & VE_ONEMORE)
 #endif
@@ -627,9 +621,7 @@ check_cursor()
 adjust_cursor_col()
 {
     if (curwin->w_cursor.col > 0
-# ifdef FEAT_VISUAL
 	    && (!VIsual_active || *p_sel == 'o')
-# endif
 	    && gchar_cursor() == NUL)
 	--curwin->w_cursor.col;
 }
@@ -1369,12 +1361,14 @@ csh_like_shell()
  * Escape a newline, depending on the 'shell' option.
  * When "do_special" is TRUE also replace "!", "%", "#" and things starting
  * with "<" like "<cfile>".
+ * When "do_newline" is FALSE do not escape newline unless it is csh shell.
  * Returns the result in allocated memory, NULL if we have run out.
  */
     char_u *
-vim_strsave_shellescape(string, do_special)
+vim_strsave_shellescape(string, do_special, do_newline)
     char_u	*string;
     int		do_special;
+    int		do_newline;
 {
     unsigned	length;
     char_u	*p;
@@ -1403,7 +1397,8 @@ vim_strsave_shellescape(string, do_special)
 # endif
 	if (*p == '\'')
 	    length += 3;		/* ' => '\'' */
-	if (*p == '\n' || (*p == '!' && (csh_like || do_special)))
+	if ((*p == '\n' && (csh_like || do_newline))
+		|| (*p == '!' && (csh_like || do_special)))
 	{
 	    ++length;			/* insert backslash */
 	    if (csh_like && do_special)
@@ -1454,7 +1449,8 @@ vim_strsave_shellescape(string, do_special)
 		++p;
 		continue;
 	    }
-	    if (*p == '\n' || (*p == '!' && (csh_like || do_special)))
+	    if ((*p == '\n' && (csh_like || do_newline))
+		    || (*p == '!' && (csh_like || do_special)))
 	    {
 		*d++ = '\\';
 		if (csh_like && do_special)
@@ -2091,29 +2087,37 @@ ga_grow(gap, n)
 
 /*
  * For a growing array that contains a list of strings: concatenate all the
- * strings with a separating comma.
+ * strings with a separating "sep".
  * Returns NULL when out of memory.
  */
     char_u *
-ga_concat_strings(gap)
+ga_concat_strings(gap, sep)
     garray_T *gap;
+    char     *sep;
 {
     int		i;
     int		len = 0;
+    int		sep_len = (int)STRLEN(sep);
     char_u	*s;
+    char_u	*p;
 
     for (i = 0; i < gap->ga_len; ++i)
-	len += (int)STRLEN(((char_u **)(gap->ga_data))[i]) + 1;
+	len += (int)STRLEN(((char_u **)(gap->ga_data))[i]) + sep_len;
 
     s = alloc(len + 1);
     if (s != NULL)
     {
 	*s = NUL;
+	p = s;
 	for (i = 0; i < gap->ga_len; ++i)
 	{
-	    if (*s != NUL)
-		STRCAT(s, ",");
-	    STRCAT(s, ((char_u **)(gap->ga_data))[i]);
+	    if (p != s)
+	    {
+		STRCPY(p, sep);
+		p += sep_len;
+	    }
+	    STRCPY(p, ((char_u **)(gap->ga_data))[i]);
+	    p += STRLEN(p);
 	}
     }
     return s;
@@ -2152,7 +2156,8 @@ ga_append(gap, c)
     }
 }
 
-#if (defined(UNIX) && !defined(USE_SYSTEM)) || defined(WIN3264)
+#if (defined(UNIX) && !defined(USE_SYSTEM)) || defined(WIN3264) \
+	|| defined(PROTO)
 /*
  * Append the text in "gap" below the cursor line and clear "gap".
  */
@@ -3292,17 +3297,14 @@ get_real_state()
 {
     if (State & NORMAL)
     {
-#ifdef FEAT_VISUAL
 	if (VIsual_active)
 	{
 	    if (VIsual_select)
 		return SELECTMODE;
 	    return VISUAL;
 	}
-	else
-#endif
-	    if (finish_op)
-		return OP_PENDING;
+	else if (finish_op)
+	    return OP_PENDING;
     }
     return State;
 }
@@ -3740,7 +3742,6 @@ get_shape_idx(mouse)
     }
     if (finish_op)
 	return SHAPE_IDX_O;
-#ifdef FEAT_VISUAL
     if (VIsual_active)
     {
 	if (*p_sel == 'e')
@@ -3748,7 +3749,6 @@ get_shape_idx(mouse)
 	else
 	    return SHAPE_IDX_V;
     }
-#endif
     return SHAPE_IDX_N;
 }
 #endif
@@ -4701,8 +4701,8 @@ vim_findfile_init(path, filename, stopdirs, level, free_visited, find_what,
 	else
 	{
 	    char_u *p =  gettail(search_ctx->ffsc_fix_path);
-	    char_u *wc_path = NUL;
-	    char_u *temp = NUL;
+	    char_u *wc_path = NULL;
+	    char_u *temp = NULL;
 	    int    len = 0;
 
 	    if (p > search_ctx->ffsc_fix_path)

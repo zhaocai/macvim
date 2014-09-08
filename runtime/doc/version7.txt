@@ -1,4 +1,4 @@
-*version7.txt*  For Vim version 7.4.  Last change: 2013 Sep 03
+*version7.txt*  For Vim version 7.4.  Last change: 2013 Nov 18
 
 
 		  VIM REFERENCE MANUAL    by Bram Moolenaar
@@ -942,6 +942,7 @@ New and extended functions: ~
 |tagfiles()|		List with tags file names
 |taglist()|		get list of matching tags (Yegappan Lakshmanan)
 |tr()|			translate characters (Ron Aaron)
+|uniq()|		remove copies of repeated adjacent list items
 |values()|		get List of Dictionary values
 |winnr()|		takes an argument: what window to use
 |winrestview()|		restore the view of the current window
@@ -7190,7 +7191,7 @@ More encryption					*new-more-encryption*
 ---------------
 
 Support for Blowfish encryption.  Added the 'cryptmethod' option.
-Mostly by Moshin Ahmed.
+Mostly by Mohsin Ahmed.
 
 Also encrypt the text in the swap file and the undo file.
 

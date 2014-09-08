@@ -23,10 +23,6 @@
 # include <limits.h>
 #endif
 
-#ifdef FEAT_GUI_MACVIM
-#include <objc/objc-runtime.h>  /* for objc_*() and sel_*() */
-#endif
-
 /* Maximum number of commands from + or -c arguments. */
 #define MAX_ARG_CMDS 10
 
@@ -180,9 +176,7 @@ main
     // Cocoa needs an NSAutoreleasePool in place or it will leak memory.
     // This particular pool will hold autorelease objects created during
     // initialization.
-    id autoreleasePool = objc_msgSend(objc_msgSend(
-            objc_getClass("NSAutoreleasePool"),sel_getUid("alloc")
-            ), sel_getUid("init"));
+    void *autoreleasePool = gui_macvim_new_autoreleasepool();
 #endif
 
     /*
@@ -335,6 +329,7 @@ main
     init_yank();		/* init yank buffers */
 
     alist_init(&global_alist);	/* Init the argument list to empty. */
+    global_alist.id = 0;
 
     /*
      * Set the default values for the options.
@@ -724,6 +719,11 @@ vim_main2(int argc UNUSED, char **argv UNUSED)
 	TIME_MSG("reading viminfo");
     }
 #endif
+#ifdef FEAT_EVAL
+    /* It's better to make v:oldfiles an empty list than NULL. */
+    if (get_vim_var_list(VV_OLDFILES) == NULL)
+	set_vim_var_list(VV_OLDFILES, list_alloc());
+#endif
 
 #ifdef FEAT_QUICKFIX
     /*
@@ -1066,13 +1066,11 @@ vim_main2(int argc UNUSED, char **argv UNUSED)
 #ifdef FEAT_GUI_MACVIM
     // The autorelease pool might have filled up quite a bit during
     // initialization, so purge it before entering the main loop.
-    objc_msgSend(autoreleasePool, sel_getUid("release"));
+    gui_macvim_release_autoreleasepool(autoreleasePool);
 
     // The main loop sets up its own autorelease pool, but to be safe we still
     // realloc this one here.
-    autoreleasePool = objc_msgSend(objc_msgSend(
-            objc_getClass("NSAutoreleasePool"),sel_getUid("alloc")
-            ), sel_getUid("init"));
+    autoreleasePool = gui_macvim_new_autoreleasepool();
 #endif
 
     /*
@@ -1081,7 +1079,7 @@ vim_main2(int argc UNUSED, char **argv UNUSED)
     main_loop(FALSE, FALSE);
 
 #ifdef FEAT_GUI_MACVIM
-    objc_msgSend(autoreleasePool, sel_getUid("release"));
+    gui_macvim_release_autoreleasepool(autoreleasePool);
 #endif
 
     return 0;
@@ -1113,13 +1111,11 @@ main_loop(cmdwin, noexmode)
     /* Setup to catch a terminating error from the X server.  Just ignore
      * it, restore the state and continue.  This might not always work
      * properly, but at least we don't exit unexpectedly when the X server
-     * exists while Vim is running in a console. */
+     * exits while Vim is running in a console. */
     if (!cmdwin && !noexmode && SETJMP(x_jump_env))
     {
 	State = NORMAL;
-# ifdef FEAT_VISUAL
 	VIsual_active = FALSE;
-# endif
 	got_int = TRUE;
 	need_wait_return = FALSE;
 	global_busy = FALSE;
@@ -1152,9 +1148,7 @@ main_loop(cmdwin, noexmode)
 #ifdef FEAT_GUI_MACVIM
         // Cocoa needs an NSAutoreleasePool in place or it will leak memory.
         // This particular pool gets released once every loop.
-        id autoreleasePool = objc_msgSend(objc_msgSend(
-                objc_getClass("NSAutoreleasePool"),sel_getUid("alloc")
-                ), sel_getUid("init"));
+        void *autoreleasePool = gui_macvim_new_autoreleasepool();
 #endif
 
 	if (stuff_empty())
@@ -1164,11 +1158,7 @@ main_loop(cmdwin, noexmode)
 		check_timestamps(FALSE);
 	    if (need_wait_return)	/* if wait_return still needed ... */
 		wait_return(FALSE);	/* ... call it now */
-	    if (need_start_insertmode && goto_im()
-#ifdef FEAT_VISUAL
-		    && !VIsual_active
-#endif
-		    )
+	    if (need_start_insertmode && goto_im() && !VIsual_active)
 	    {
 		need_start_insertmode = FALSE;
 		stuffReadbuff((char_u *)"i");	/* start insert mode next */
@@ -1270,7 +1260,7 @@ main_loop(cmdwin, noexmode)
 		diff_need_scrollbind = FALSE;
 	    }
 #endif
-#if defined(FEAT_FOLDING) && defined(FEAT_VISUAL)
+#if defined(FEAT_FOLDING)
 	    /* Include a closed fold completely in the Visual area. */
 	    foldAdjustVisual();
 #endif
@@ -1296,12 +1286,9 @@ main_loop(cmdwin, noexmode)
 	    update_topline();
 	    validate_cursor();
 
-#ifdef FEAT_VISUAL
 	    if (VIsual_active)
 		update_curbuf(INVERTED);/* update inverted part */
-	    else
-#endif
-		if (must_redraw)
+	    else if (must_redraw)
 		update_screen(0);
 	    else if (redraw_cmdline || clear_cmdline)
 		showmode();
@@ -1404,7 +1391,7 @@ main_loop(cmdwin, noexmode)
 #ifdef FEAT_GUI_MACVIM
         // TODO! Make sure there are no continue statements that will cause
         // this not to be called or MacVim will leak memory!
-        objc_msgSend(autoreleasePool, sel_getUid("release"));
+        gui_macvim_release_autoreleasepool(autoreleasePool);
 #endif
     }
 }
@@ -1689,6 +1676,7 @@ parse_command_name(parmp)
 
 #ifdef FEAT_EVAL
     set_vim_var_string(VV_PROGNAME, initstr, -1);
+    set_vim_var_string(VV_PROGPATH, (char_u *)parmp->argv[0], -1);
 #endif
 
     if (TOLOWER_ASC(initstr[0]) == 'r')

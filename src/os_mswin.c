@@ -498,7 +498,7 @@ slash_adjust(p)
     }
 }
 
-#if (_MSC_VER >= 1300)
+#if (defined(_MSC_VER) && (_MSC_VER >= 1300)) || defined(__MINGW32__)
 # define OPEN_OH_ARGTYPE intptr_t
 #else
 # define OPEN_OH_ARGTYPE long
@@ -617,8 +617,22 @@ vim_stat(const char *name, struct stat *stp)
     p = buf + strlen(buf);
     if (p > buf)
 	mb_ptr_back(buf, p);
+
+    /* Remove trailing '\\' except root path. */
     if (p > buf && (*p == '\\' || *p == '/') && p[-1] != ':')
 	*p = NUL;
+
+    if ((buf[0] == '\\' && buf[1] == '\\') || (buf[0] == '/' && buf[1] == '/'))
+    {
+	/* UNC root path must be followed by '\\'. */
+	p = vim_strpbrk(buf + 2, "\\/");
+	if (p != NULL)
+	{
+	    p = vim_strpbrk(p + 1, "\\/");
+	    if (p == NULL)
+		STRCAT(buf, "\\");
+	}
+    }
 #ifdef FEAT_MBYTE
     if (enc_codepage >= 0 && (int)GetACP() != enc_codepage
 # ifdef __BORLANDC__
@@ -634,7 +648,7 @@ vim_stat(const char *name, struct stat *stp)
 	{
 	    n = wstat_symlink_aware(wp, (struct _stat *)stp);
 	    vim_free(wp);
-	    if (n >= 0)
+	    if (n >= 0 || g_PlatformId == VER_PLATFORM_WIN32_NT)
 		return n;
 	    /* Retry with non-wide function (for Windows 98). Can't use
 	     * GetLastError() here and it's unclear what errno gets set to if
@@ -801,8 +815,8 @@ mch_chdir(char *path)
 	{
 	    n = _wchdir(p);
 	    vim_free(p);
-	    if (n == 0)
-		return 0;
+	    if (n == 0 || g_PlatformId == VER_PLATFORM_WIN32_NT)
+		return n;
 	    /* Retry with non-wide function (for Windows 98). */
 	}
     }
@@ -1928,8 +1942,7 @@ mch_resolve_shortcut(char_u *fname)
 
 shortcut_errorw:
 		vim_free(p);
-		if (hr == S_OK)
-		    goto shortcut_end;
+		goto shortcut_end;
 	    }
 	}
 	/* Retry with non-wide function (for Windows 98). */
@@ -2854,12 +2867,27 @@ get_logfont(
 {
     char_u	*p;
     int		i;
+    int		ret = FAIL;
     static LOGFONT *lastlf = NULL;
+#ifdef FEAT_MBYTE
+    char_u	*acpname = NULL;
+#endif
 
     *lf = s_lfDefault;
     if (name == NULL)
 	return OK;
 
+#ifdef FEAT_MBYTE
+    /* Convert 'name' from 'encoding' to the current codepage, because
+     * lf->lfFaceName uses the current codepage.
+     * TODO: Use Wide APIs instead of ANSI APIs. */
+    if (enc_codepage >= 0 && (int)GetACP() != enc_codepage)
+    {
+	int	len;
+	enc_to_acp(name, (int)strlen(name), &acpname, &len);
+	name = acpname;
+    }
+#endif
     if (STRCMP(name, "*") == 0)
     {
 #if defined(FEAT_GUI_W32)
@@ -2874,10 +2902,9 @@ get_logfont(
 	cf.lpLogFont = lf;
 	cf.nFontType = 0 ; //REGULAR_FONTTYPE;
 	if (ChooseFont(&cf))
-	    goto theend;
-#else
-	return FAIL;
+	    ret = OK;
 #endif
+	goto theend;
     }
 
     /*
@@ -2886,7 +2913,7 @@ get_logfont(
     for (p = name; *p && *p != ':'; p++)
     {
 	if (p - name + 1 > LF_FACESIZE)
-	    return FAIL;			/* Name too long */
+	    goto theend;			/* Name too long */
 	lf->lfFaceName[p - name] = *p;
     }
     if (p != name)
@@ -2914,7 +2941,7 @@ get_logfont(
 		did_replace = TRUE;
 	    }
 	if (!did_replace || init_logfont(lf) == FAIL)
-	    return FAIL;
+	    goto theend;
     }
 
     while (*p == ':')
@@ -2975,25 +3002,27 @@ get_logfont(
 			    p[-1], name);
 		    EMSG(IObuff);
 		}
-		return FAIL;
+		goto theend;
 	}
 	while (*p == ':')
 	    p++;
     }
+    ret = OK;
 
-#if defined(FEAT_GUI_W32)
 theend:
-#endif
     /* ron: init lastlf */
-    if (printer_dc == NULL)
+    if (ret == OK && printer_dc == NULL)
     {
 	vim_free(lastlf);
 	lastlf = (LOGFONT *)alloc(sizeof(LOGFONT));
 	if (lastlf != NULL)
 	    mch_memmove(lastlf, lf, sizeof(LOGFONT));
     }
+#ifdef FEAT_MBYTE
+    vim_free(acpname);
+#endif
 
-    return OK;
+    return ret;
 }
 
 #endif /* defined(FEAT_GUI) || defined(FEAT_PRINTER) */

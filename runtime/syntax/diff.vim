@@ -2,7 +2,7 @@
 " Language:	Diff (context or unified)
 " Maintainer:	Bram Moolenaar <Bram@vim.org>
 "               Translations by Jakson Alves de Aquino.
-" Last Change:	2013 Jul 24
+" Last Change:	2013 Oct 06
 
 " Quit when a (custom) syntax file was already loaded
 if exists("b:current_syntax")
@@ -336,17 +336,12 @@ syn match diffLine	"^---$"
 "Some versions of diff have lines like "#c#" and "#d#" (where # is a number)
 syn match diffLine	"^\d\+\(,\d\+\)\=[cda]\d\+\>.*"
 
-syn match diffFile	"^diff.*"
-syn match diffFile	"^Index: .*$"
-syn match diffFile	"^==== .*$"
-
-if exists("g:diffsyn_context_format")
-  syn match diffOldFile	"^\*\*\* .*"
-  syn match diffNewFile	"^--- .*"
-else
-  syn match diffOldFile	"^--- .*"
-  syn match diffNewFile	"^+++ .*"
-endif
+syn match diffFile	"^diff\>.*"
+syn match diffFile	"^+++ .*"
+syn match diffFile	"^Index: .*"
+syn match diffFile	"^==== .*"
+syn match diffOldFile	"^\*\*\* .*"
+syn match diffNewFile	"^--- .*"
 
 syn match diffComment	"^#.*"
 

@@ -201,7 +201,7 @@ search_regcomp(pat, pat_save, pat_use, options, regmatch)
      * Save the currently used pattern in the appropriate place,
      * unless the pattern should not be remembered.
      */
-    if (!(options & SEARCH_KEEP))
+    if (!(options & SEARCH_KEEP) && !cmdmod.keeppatterns)
     {
 	/* search or global command */
 	if (pat_save == RE_SEARCH || pat_save == RE_BOTH)
@@ -293,7 +293,7 @@ save_re_pat(idx, pat, magic)
 	/* If 'hlsearch' set and search pat changed: need redraw. */
 	if (p_hls)
 	    redraw_all_later(SOME_VALID);
-	no_hlsearch = FALSE;
+	SET_NO_HLSEARCH(FALSE);
 #endif
     }
 }
@@ -337,7 +337,7 @@ restore_search_patterns()
 	spats[1] = saved_spats[1];
 	last_idx = saved_last_idx;
 # ifdef FEAT_SEARCH_EXTRA
-	no_hlsearch = saved_no_hlsearch;
+	SET_NO_HLSEARCH(saved_no_hlsearch);
 # endif
     }
 }
@@ -515,7 +515,7 @@ last_pat_prog(regmatch)
 #endif
 
 /*
- * lowest level search function.
+ * Lowest level search function.
  * Search for 'count'th occurrence of pattern 'pat' in direction 'dir'.
  * Start at position 'pos' and return the found position in 'pos'.
  *
@@ -1157,7 +1157,7 @@ do_search(oap, dirc, pat, count, options, tm)
     if (no_hlsearch && !(options & SEARCH_KEEP))
     {
 	redraw_all_later(SOME_VALID);
-	no_hlsearch = FALSE;
+	SET_NO_HLSEARCH(FALSE);
     }
 #endif
 
@@ -1446,7 +1446,7 @@ do_search(oap, dirc, pat, count, options, tm)
     curwin->w_set_curswant = TRUE;
 
 end_do_search:
-    if (options & SEARCH_KEEP)
+    if ((options & SEARCH_KEEP) || cmdmod.keeppatterns)
 	spats[0].off = old_off;
     vim_free(strcopy);
 
@@ -3207,7 +3207,6 @@ current_word(oap, count, include, bigword)
     cls_bigword = bigword;
     clearpos(&start_pos);
 
-#ifdef FEAT_VISUAL
     /* Correct cursor when 'selection' is exclusive */
     if (VIsual_active && *p_sel == 'e' && lt(VIsual, curwin->w_cursor))
 	dec_cursor();
@@ -3217,7 +3216,6 @@ current_word(oap, count, include, bigword)
      * character, select the word and/or white space under the cursor.
      */
     if (!VIsual_active || equalpos(curwin->w_cursor, VIsual))
-#endif
     {
 	/*
 	 * Go to start of current word or white space.
@@ -3254,7 +3252,6 @@ current_word(oap, count, include, bigword)
 		include_white = TRUE;
 	}
 
-#ifdef FEAT_VISUAL
 	if (VIsual_active)
 	{
 	    /* should do something when inclusive == FALSE ! */
@@ -3262,7 +3259,6 @@ current_word(oap, count, include, bigword)
 	    redraw_curbuf_later(INVERTED);	/* update the inversion */
 	}
 	else
-#endif
 	{
 	    oap->start = start_pos;
 	    oap->motion_type = MCHAR;
@@ -3276,7 +3272,6 @@ current_word(oap, count, include, bigword)
     while (count > 0)
     {
 	inclusive = TRUE;
-#ifdef FEAT_VISUAL
 	if (VIsual_active && lt(curwin->w_cursor, VIsual))
 	{
 	    /*
@@ -3297,7 +3292,6 @@ current_word(oap, count, include, bigword)
 	    }
 	}
 	else
-#endif
 	{
 	    /*
 	     * Move cursor forward one word and/or white area.
@@ -3343,18 +3337,15 @@ current_word(oap, count, include, bigword)
 	    back_in_line();
 	    if (cls() == 0 && curwin->w_cursor.col > 0)
 	    {
-#ifdef FEAT_VISUAL
 		if (VIsual_active)
 		    VIsual = curwin->w_cursor;
 		else
-#endif
 		    oap->start = curwin->w_cursor;
 	    }
 	}
 	curwin->w_cursor = pos;	/* put cursor back at end */
     }
 
-#ifdef FEAT_VISUAL
     if (VIsual_active)
     {
 	if (*p_sel == 'e' && inclusive && ltoreq(VIsual, curwin->w_cursor))
@@ -3366,7 +3357,6 @@ current_word(oap, count, include, bigword)
 	}
     }
     else
-#endif
 	oap->inclusive = inclusive;
 
     return OK;
@@ -3393,7 +3383,6 @@ current_sent(oap, count, include)
     pos = start_pos;
     findsent(FORWARD, 1L);	/* Find start of next sentence. */
 
-#ifdef FEAT_VISUAL
     /*
      * When the Visual area is bigger than one character: Extend it.
      */
@@ -3480,7 +3469,6 @@ extend:
 	}
 	return OK;
     }
-#endif
 
     /*
      * If the cursor started on a blank, check if it is just before the start
@@ -3530,7 +3518,6 @@ extend:
 	    find_first_blank(&start_pos);
     }
 
-#ifdef FEAT_VISUAL
     if (VIsual_active)
     {
 	/* Avoid getting stuck with "is" on a single space before a sentence. */
@@ -3543,7 +3530,6 @@ extend:
 	redraw_curbuf_later(INVERTED);	/* update the inversion */
     }
     else
-#endif
     {
 	/* include a newline after the sentence, if there is one */
 	if (incl(&curwin->w_cursor) == -1)
@@ -3583,9 +3569,7 @@ current_block(oap, count, include, what, other)
     /*
      * If we start on '(', '{', ')', '}', etc., use the whole block inclusive.
      */
-#ifdef FEAT_VISUAL
     if (!VIsual_active || equalpos(VIsual, curwin->w_cursor))
-#endif
     {
 	setpcmark();
 	if (what == '{')		/* ignore indent */
@@ -3596,7 +3580,6 @@ current_block(oap, count, include, what, other)
 	    /* cursor on '(' or '{', move cursor just after it */
 	    ++curwin->w_cursor.col;
     }
-#ifdef FEAT_VISUAL
     else if (lt(VIsual, curwin->w_cursor))
     {
 	old_start = VIsual;
@@ -3604,7 +3587,6 @@ current_block(oap, count, include, what, other)
     }
     else
 	old_end = VIsual;
-#endif
 
     /*
      * Search backwards for unclosed '(', '{', etc..
@@ -3635,22 +3617,22 @@ current_block(oap, count, include, what, other)
 
     /*
      * Try to exclude the '(', '{', ')', '}', etc. when "include" is FALSE.
-     * If the ending '}' is only preceded by indent, skip that indent.
-     * But only if the resulting area is not smaller than what we started with.
+     * If the ending '}', ')' or ']' is only preceded by indent, skip that
+     * indent.  But only if the resulting area is not smaller than what we
+     * started with.
      */
     while (!include)
     {
 	incl(&start_pos);
 	sol = (curwin->w_cursor.col == 0);
 	decl(&curwin->w_cursor);
-	if (what == '{')
-	    while (inindent(1))
-	    {
-		sol = TRUE;
-		if (decl(&curwin->w_cursor) != 0)
-		    break;
-	    }
-#ifdef FEAT_VISUAL
+	while (inindent(1))
+	{
+	    sol = TRUE;
+	    if (decl(&curwin->w_cursor) != 0)
+		break;
+	}
+
 	/*
 	 * In Visual mode, when the resulting area is not bigger than what we
 	 * started with, extend it to the next block, and then exclude again.
@@ -3675,11 +3657,9 @@ current_block(oap, count, include, what, other)
 	    curwin->w_cursor = *end_pos;
 	}
 	else
-#endif
 	    break;
     }
 
-#ifdef FEAT_VISUAL
     if (VIsual_active)
     {
 	if (*p_sel == 'e')
@@ -3692,7 +3672,6 @@ current_block(oap, count, include, what, other)
 	showmode();
     }
     else
-#endif
     {
 	oap->start = start_pos;
 	oap->motion_type = MCHAR;
@@ -3816,17 +3795,13 @@ current_tagblock(oap, count_arg, include)
     old_pos = curwin->w_cursor;
     old_end = curwin->w_cursor;		    /* remember where we started */
     old_start = old_end;
-#ifdef FEAT_VISUAL
     if (!VIsual_active || *p_sel == 'e')
-#endif
 	decl(&old_end);			    /* old_end is inclusive */
 
     /*
      * If we start on "<aaa>" select that block.
      */
-#ifdef FEAT_VISUAL
     if (!VIsual_active || equalpos(VIsual, curwin->w_cursor))
-#endif
     {
 	setpcmark();
 
@@ -3852,7 +3827,6 @@ current_tagblock(oap, count_arg, include)
 	    old_end = curwin->w_cursor;
 	}
     }
-#ifdef FEAT_VISUAL
     else if (lt(VIsual, curwin->w_cursor))
     {
 	old_start = VIsual;
@@ -3860,7 +3834,6 @@ current_tagblock(oap, count_arg, include)
     }
     else
 	old_end = VIsual;
-#endif
 
 again:
     /*
@@ -3960,7 +3933,6 @@ again:
 	}
     }
 
-#ifdef FEAT_VISUAL
     if (VIsual_active)
     {
 	/* If the end is before the start there is no text between tags, select
@@ -3975,7 +3947,6 @@ again:
 	showmode();
     }
     else
-#endif
     {
 	oap->start = start_pos;
 	oap->motion_type = MCHAR;
@@ -4019,7 +3990,6 @@ current_par(oap, count, include, type)
 
     start_lnum = curwin->w_cursor.lnum;
 
-#ifdef FEAT_VISUAL
     /*
      * When visual area is more than one line: extend it.
      */
@@ -4073,7 +4043,6 @@ extend:
 	curwin->w_cursor.col = 0;
 	return retval;
     }
-#endif
 
     /*
      * First move back to the start_lnum of the paragraph or white lines
@@ -4145,7 +4114,6 @@ extend:
 	while (start_lnum > 1 && linewhite(start_lnum - 1))
 	    --start_lnum;
 
-#ifdef FEAT_VISUAL
     if (VIsual_active)
     {
 	/* Problem: when doing "Vipipip" nothing happens in a single white
@@ -4158,7 +4126,6 @@ extend:
 	showmode();
     }
     else
-#endif
     {
 	oap->start.lnum = start_lnum;
 	oap->start.col = 0;
@@ -4256,7 +4223,6 @@ current_quote(oap, count, include, quotechar)
     int		col_end;
     int		col_start = curwin->w_cursor.col;
     int		inclusive = FALSE;
-#ifdef FEAT_VISUAL
     int		vis_empty = TRUE;	/* Visual selection <= 1 char */
     int		vis_bef_curs = FALSE;	/* Visual starts before cursor */
     int		inside_quotes = FALSE;	/* Looks like "i'" done before */
@@ -4340,17 +4306,11 @@ current_quote(oap, count, include, quotechar)
 	}
     }
     else
-#endif
 
-    if (line[col_start] == quotechar
-#ifdef FEAT_VISUAL
-	    || !vis_empty
-#endif
-	    )
+    if (line[col_start] == quotechar || !vis_empty)
     {
 	int	first_col = col_start;
 
-#ifdef FEAT_VISUAL
 	if (!vis_empty)
 	{
 	    if (vis_bef_curs)
@@ -4358,7 +4318,7 @@ current_quote(oap, count, include, quotechar)
 	    else
 		first_col = find_prev_quote(line, col_start, quotechar, NULL);
 	}
-#endif
+
 	/* The cursor is on a quote, we don't know if it's the opening or
 	 * closing quote.  Search from the start of the line to find out.
 	 * Also do this when there is a Visual area, a' may leave the cursor
@@ -4415,14 +4375,9 @@ current_quote(oap, count, include, quotechar)
 
     /* Set start position.  After vi" another i" must include the ".
      * For v2i" include the quotes. */
-    if (!include && count < 2
-#ifdef FEAT_VISUAL
-	    && (vis_empty || !inside_quotes)
-#endif
-	    )
+    if (!include && count < 2 && (vis_empty || !inside_quotes))
 	++col_start;
     curwin->w_cursor.col = col_start;
-#ifdef FEAT_VISUAL
     if (VIsual_active)
     {
 	/* Set the start of the Visual area when the Visual area was empty, we
@@ -4442,7 +4397,6 @@ current_quote(oap, count, include, quotechar)
 	}
     }
     else
-#endif
     {
 	oap->start = curwin->w_cursor;
 	oap->motion_type = MCHAR;
@@ -4450,14 +4404,10 @@ current_quote(oap, count, include, quotechar)
 
     /* Set end position. */
     curwin->w_cursor.col = col_end;
-    if ((include || count > 1
-#ifdef FEAT_VISUAL
-		/* After vi" another i" must include the ". */
+    if ((include || count > 1 /* After vi" another i" must include the ". */
 		|| (!vis_empty && inside_quotes)
-#endif
 	) && inc_cursor() == 2)
 	inclusive = TRUE;
-#ifdef FEAT_VISUAL
     if (VIsual_active)
     {
 	if (vis_empty || vis_bef_curs)
@@ -4489,7 +4439,6 @@ current_quote(oap, count, include, quotechar)
 	}
     }
     else
-#endif
     {
 	/* Set inclusive and other oap's flags. */
 	oap->inclusive = inclusive;
@@ -4500,7 +4449,6 @@ current_quote(oap, count, include, quotechar)
 
 #endif /* FEAT_TEXTOBJ */
 
-#if defined(FEAT_VISUAL) || defined(PROTO)
 static int is_one_char __ARGS((char_u *pattern));
 
 /*
@@ -4553,7 +4501,10 @@ current_search(count, forward)
     /* Is the pattern is zero-width? */
     one_char = is_one_char(spats[last_idx].pat);
     if (one_char == -1)
-	return FAIL;  /* invalid pattern */
+    {
+	p_ws = old_p_ws;
+	return FAIL;  /* pattern not found */
+    }
 
     /*
      * The trick is to first search backwards and then search forward again,
@@ -4601,7 +4552,7 @@ current_search(count, forward)
 				ml_get(curwin->w_buffer->b_ml.ml_line_count));
 	    }
 	}
-
+	p_ws = old_p_ws;
     }
 
     start_pos = pos;
@@ -4616,7 +4567,6 @@ current_search(count, forward)
     if (!VIsual_active)
 	VIsual = start_pos;
 
-    p_ws = old_p_ws;
     curwin->w_cursor = pos;
     VIsual_active = TRUE;
     VIsual_mode = 'v';
@@ -4697,7 +4647,6 @@ is_one_char(pattern)
     vim_regfree(regmatch.regprog);
     return result;
 }
-#endif /* FEAT_VISUAL */
 
 #if defined(FEAT_LISP) || defined(FEAT_CINDENT) || defined(FEAT_TEXTOBJ) \
 	|| defined(PROTO)
@@ -5577,7 +5526,9 @@ read_viminfo_search_pattern(virp, force)
 		spats[idx].off.off = off;
 #ifdef FEAT_SEARCH_EXTRA
 		if (setlast)
-		    no_hlsearch = !hlsearch_on;
+		{
+		    SET_NO_HLSEARCH(!hlsearch_on);
+		}
 #endif
 	    }
 	}

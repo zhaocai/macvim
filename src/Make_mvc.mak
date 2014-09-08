@@ -424,6 +424,12 @@ MSVCVER = 11.0
 !if "$(_NMAKE_VER)" == "11.00.60610.1"
 MSVCVER = 11.0
 !endif
+!if "$(_NMAKE_VER)" == "11.00.61030.0"
+MSVCVER = 11.0
+!endif
+!if "$(_NMAKE_VER)" == "12.00.21005.1"
+MSVCVER = 12.0
+!endif
 !endif
 
 # Abort building VIM if version of VC is unrecognised.
@@ -438,7 +444,7 @@ MSVCVER = 11.0
 !endif
 
 # Convert processor ID to MVC-compatible number
-!if ("$(MSVCVER)" != "8.0") && ("$(MSVCVER)" != "9.0") && ("$(MSVCVER)" != "10.0") && ("$(MSVCVER)" != "11.0")
+!if ("$(MSVCVER)" != "8.0") && ("$(MSVCVER)" != "9.0") && ("$(MSVCVER)" != "10.0") && ("$(MSVCVER)" != "11.0") && ("$(MSVCVER)" != "12.0")
 !if "$(CPUNR)" == "i386"
 CPUARG = /G3
 !elseif "$(CPUNR)" == "i486"
@@ -472,7 +478,7 @@ OPTFLAG = /O2
 OPTFLAG = /Ox
 !endif
 
-!if ("$(MSVCVER)" == "8.0") || ("$(MSVCVER)" == "9.0") || ("$(MSVCVER)" == "10.0") || ("$(MSVCVER)" == "11.0")
+!if ("$(MSVCVER)" == "8.0") || ("$(MSVCVER)" == "9.0") || ("$(MSVCVER)" == "10.0") || ("$(MSVCVER)" == "11.0") || ("$(MSVCVER)" == "12.0")
 # Use link time code generation if not worried about size
 !if "$(OPTIMIZE)" != "SPACE"
 OPTFLAG = $(OPTFLAG) /GL
@@ -485,7 +491,7 @@ CFLAGS=$(CFLAGS) $(WP64CHECK)
 !endif
 
 # Static code analysis generally available starting with VS2012
-!if ("$(ANALYZE)" == "yes") && ("$(MSVCVER)" == "11.0")
+!if ("$(ANALYZE)" == "yes") && (("$(MSVCVER)" == "10.0") || ("$(MSVCVER)" == "11.0") || ("$(MSVCVER)" == "12.0"))
 CFLAGS=$(CFLAGS) /analyze
 !endif
 
@@ -822,7 +828,12 @@ PERL_INCDIR = $(PERL)\Lib$(PERL_ARCH)\Core
 PERL_LIB = $(PERL_INCDIR)\perl.lib
 !else
 PERL_DLL = perl$(PERL_VER).dll
+!if exist($(PERL_INCDIR)\perl$(PERL_VER).lib)
 PERL_LIB = $(PERL_INCDIR)\perl$(PERL_VER).lib
+!else
+# For ActivePerl 5.18 and later
+PERL_LIB = $(PERL_INCDIR)\libperl$(PERL_VER).a
+!endif
 !endif
 
 CFLAGS = $(CFLAGS) -DFEAT_PERL
@@ -943,7 +954,7 @@ LINKARGS2 = $(CON_LIB) $(GUI_LIB) $(LIBC) $(OLE_LIB)  user32.lib $(SNIFF_LIB) \
 
 # Report link time code generation progress if used. 
 !ifdef NODEBUG
-!if ("$(MSVCVER)" == "8.0") || ("$(MSVCVER)" == "9.0") || ("$(MSVCVER)" == "10.0") || ("$(MSVCVER)" == "11.0")
+!if ("$(MSVCVER)" == "8.0") || ("$(MSVCVER)" == "9.0") || ("$(MSVCVER)" == "10.0") || ("$(MSVCVER)" == "11.0") || ("$(MSVCVER)" == "12.0")
 !if "$(OPTIMIZE)" != "SPACE"
 LINKARGS1 = $(LINKARGS1) /LTCG:STATUS
 !endif
@@ -962,6 +973,7 @@ $(VIM).exe: $(OUTDIR) $(OBJ) $(GUI_OBJ) $(OLE_OBJ) $(OLE_IDL) $(MZSCHEME_OBJ) \
 		$(LUA_OBJ) $(MZSCHEME_OBJ) $(PERL_OBJ) $(PYTHON_OBJ) $(PYTHON3_OBJ) $(RUBY_OBJ) \
 		$(TCL_OBJ) $(SNIFF_OBJ) $(CSCOPE_OBJ) $(NETBEANS_OBJ) \
 		$(XPM_OBJ) $(OUTDIR)\version.obj $(LINKARGS2)
+	if exist $(VIM).exe.manifest mt.exe -nologo -manifest $(VIM).exe.manifest -updateresource:$(VIM).exe;1
 
 $(VIM): $(VIM).exe
 

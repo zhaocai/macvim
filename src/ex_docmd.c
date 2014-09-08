@@ -318,7 +318,6 @@ static void	ex_winpos __ARGS((exarg_T *eap));
 static void	ex_operators __ARGS((exarg_T *eap));
 static void	ex_put __ARGS((exarg_T *eap));
 static void	ex_copymove __ARGS((exarg_T *eap));
-static void	ex_may_print __ARGS((exarg_T *eap));
 static void	ex_submagic __ARGS((exarg_T *eap));
 static void	ex_join __ARGS((exarg_T *eap));
 static void	ex_at __ARGS((exarg_T *eap));
@@ -1850,6 +1849,11 @@ do_one_cmd(cmdlinep, sourcing,
 			    cmdmod.keepalt = TRUE;
 			    continue;
 			}
+			if (checkforcmd(&ea.cmd, "keeppatterns", 5))
+			{
+			    cmdmod.keeppatterns = TRUE;
+			    continue;
+			}
 			if (!checkforcmd(&ea.cmd, "keepjumps", 5))
 			    break;
 			cmdmod.keepjumps = TRUE;
@@ -1876,18 +1880,23 @@ do_one_cmd(cmdlinep, sourcing,
 #endif
 			continue;
 
-	    case 'n':	if (!checkforcmd(&ea.cmd, "noautocmd", 3))
-			    break;
-#ifdef FEAT_AUTOCMD
-			if (cmdmod.save_ei == NULL)
+	    case 'n':	if (checkforcmd(&ea.cmd, "noautocmd", 3))
 			{
-			    /* Set 'eventignore' to "all". Restore the
-			     * existing option value later. */
-			    cmdmod.save_ei = vim_strsave(p_ei);
-			    set_string_option_direct((char_u *)"ei", -1,
+#ifdef FEAT_AUTOCMD
+			    if (cmdmod.save_ei == NULL)
+			    {
+				/* Set 'eventignore' to "all". Restore the
+				 * existing option value later. */
+				cmdmod.save_ei = vim_strsave(p_ei);
+				set_string_option_direct((char_u *)"ei", -1,
 					 (char_u *)"all", OPT_FREE, SID_NONE);
-			}
+			    }
 #endif
+			    continue;
+			}
+			if (!checkforcmd(&ea.cmd, "noswapfile", 6))
+			    break;
+			cmdmod.noswapfile = TRUE;
 			continue;
 
 	    case 'r':	if (!checkforcmd(&ea.cmd, "rightbelow", 6))
@@ -2591,12 +2600,15 @@ do_one_cmd(cmdlinep, sourcing,
 	    case CMD_keepalt:
 	    case CMD_keepjumps:
 	    case CMD_keepmarks:
+	    case CMD_keeppatterns:
 	    case CMD_leftabove:
 	    case CMD_let:
 	    case CMD_lockmarks:
 	    case CMD_lua:
 	    case CMD_match:
 	    case CMD_mzscheme:
+	    case CMD_noautocmd:
+	    case CMD_noswapfile:
 	    case CMD_perl:
 	    case CMD_psearch:
 	    case CMD_python:
@@ -3096,9 +3108,11 @@ static struct cmdmod
     {"keepalt", 5, FALSE},
     {"keepjumps", 5, FALSE},
     {"keepmarks", 3, FALSE},
+    {"keeppatterns", 5, FALSE},
     {"leftabove", 5, FALSE},
     {"lockmarks", 3, FALSE},
     {"noautocmd", 3, FALSE},
+    {"noswapfile", 3, FALSE},
     {"rightbelow", 6, FALSE},
     {"sandbox", 3, FALSE},
     {"silent", 3, FALSE},
@@ -3261,7 +3275,11 @@ set_one_cmd_context(xp, buff)
 	    ++p;
 	/* for python 3.x: ":py3*" commands completion */
 	if (cmd[0] == 'p' && cmd[1] == 'y' && p == cmd + 2 && *p == '3')
+	{
 	    ++p;
+	    while (ASCII_ISALPHA(*p) || *p == '*')
+		++p;
+	}
 	len = (int)(p - cmd);
 
 	if (len == 0)
@@ -3604,8 +3622,11 @@ set_one_cmd_context(xp, buff)
 	case CMD_keepalt:
 	case CMD_keepjumps:
 	case CMD_keepmarks:
+	case CMD_keeppatterns:
 	case CMD_leftabove:
 	case CMD_lockmarks:
+	case CMD_noautocmd:
+	case CMD_noswapfile:
 	case CMD_rightbelow:
 	case CMD_sandbox:
 	case CMD_silent:
@@ -4576,25 +4597,15 @@ expand_filename(eap, cmdlinep, errormsgp)
 
 	/* For a shell command a '!' must be escaped. */
 	if ((eap->usefilter || eap->cmdidx == CMD_bang)
-			    && vim_strpbrk(repl, (char_u *)"!&;()<>") != NULL)
+			    && vim_strpbrk(repl, (char_u *)"!") != NULL)
 	{
 	    char_u	*l;
 
-	    l = vim_strsave_escaped(repl, (char_u *)"!&;()<>");
+	    l = vim_strsave_escaped(repl, (char_u *)"!");
 	    if (l != NULL)
 	    {
 		vim_free(repl);
 		repl = l;
-		/* For a sh-like shell escape "!" another time. */
-		if (strstr((char *)p_sh, "sh") != NULL)
-		{
-		    l = vim_strsave_escaped(repl, (char_u *)"!");
-		    if (l != NULL)
-		    {
-			vim_free(repl);
-			repl = l;
-		    }
-		}
 	    }
 	}
 
@@ -4847,7 +4858,7 @@ getargcmd(argp)
     if (*arg == '+')	    /* +[command] */
     {
 	++arg;
-	if (vim_isspace(*arg))
+	if (vim_isspace(*arg) || *arg == NUL)
 	    command = dollar_command;
 	else
 	{
@@ -6582,7 +6593,9 @@ ex_quit(eap)
     if (check_more(FALSE, eap->forceit) == OK && only_one_window())
 	exiting = TRUE;
     if ((!P_HID(curbuf)
-		&& check_changed(curbuf, p_awa, FALSE, eap->forceit, FALSE))
+		&& check_changed(curbuf, (p_awa ? CCGD_AW : 0)
+				       | (eap->forceit ? CCGD_FORCEIT : 0)
+				       | CCGD_EXCMD))
 	    || check_more(TRUE, eap->forceit) == FAIL
 	    || (only_one_window() && check_changed_any(eap->forceit)))
     {
@@ -7117,7 +7130,7 @@ handle_drop(filec, filev, split)
     if (!P_HID(curbuf) && !split)
     {
 	++emsg_off;
-	split = check_changed(curbuf, TRUE, FALSE, FALSE, FALSE);
+	split = check_changed(curbuf, CCGD_AW);
 	--emsg_off;
     }
     if (split)
@@ -7216,6 +7229,7 @@ alist_new()
     else
     {
 	curwin->w_alist->al_refcount = 1;
+	curwin->w_alist->id = ++max_alist_id;
 	alist_init(curwin->w_alist);
     }
 }
@@ -7379,7 +7393,11 @@ ex_recover(eap)
 {
     /* Set recoverymode right away to avoid the ATTENTION prompt. */
     recoverymode = TRUE;
-    if (!check_changed(curbuf, p_awa, TRUE, eap->forceit, FALSE)
+    if (!check_changed(curbuf, (p_awa ? CCGD_AW : 0)
+			     | CCGD_MULTWIN
+			     | (eap->forceit ? CCGD_FORCEIT : 0)
+			     | CCGD_EXCMD)
+
 	    && (*eap->arg == NUL
 			     || setfname(curbuf, eap->arg, NULL, TRUE) == OK))
 	ml_recover();
@@ -7928,6 +7946,8 @@ do_exedit(eap, old_curwin)
 					       ? ECMD_ONE : eap->do_ecmd_lnum,
 		    (P_HID(curbuf) ? ECMD_HIDE : 0)
 		    + (eap->forceit ? ECMD_FORCEIT : 0)
+		      /* after a split we can use an existing buffer */
+		    + (old_curwin != NULL ? ECMD_OLDBUF : 0)
 #ifdef FEAT_LISTCMDS
 		    + (eap->cmdidx == CMD_badd ? ECMD_ADDBUF : 0 )
 #endif
@@ -8055,6 +8075,8 @@ ex_syncbind(eap)
 {
 #ifdef FEAT_SCROLLBIND
     win_T	*wp;
+    win_T	*save_curwin = curwin;
+    buf_T	*save_curbuf = curbuf;
     long	topline;
     long	y;
     linenr_T	old_linenr = curwin->w_cursor.lnum;
@@ -8086,13 +8108,13 @@ ex_syncbind(eap)
 
 
     /*
-     * set all scrollbind windows to the same topline
+     * Set all scrollbind windows to the same topline.
      */
-    wp = curwin;
     for (curwin = firstwin; curwin; curwin = curwin->w_next)
     {
 	if (curwin->w_p_scb)
 	{
+	    curbuf = curwin->w_buffer;
 	    y = topline - curwin->w_topline;
 	    if (y > 0)
 		scrollup(y, TRUE);
@@ -8106,7 +8128,8 @@ ex_syncbind(eap)
 #endif
 	}
     }
-    curwin = wp;
+    curwin = save_curwin;
+    curbuf = save_curbuf;
     if (curwin->w_p_scb)
     {
 	did_syncbind = TRUE;
@@ -8226,6 +8249,7 @@ post_chdir(local)
     int		local;
 {
     vim_free(curwin->w_localdir);
+    curwin->w_localdir = NULL;
     if (local)
     {
 	/* If still in global directory, need to remember current
@@ -8242,7 +8266,6 @@ post_chdir(local)
 	 * name. */
 	vim_free(globaldir);
 	globaldir = NULL;
-	curwin->w_localdir = NULL;
     }
 
     shorten_fnames(TRUE);
@@ -8369,7 +8392,7 @@ ex_sleep(eap)
     {
 	n = W_WINROW(curwin) + curwin->w_wrow - msg_scrolled;
 	if (n >= 0)
-	    windgoto((int)n, curwin->w_wcol);
+	    windgoto((int)n, W_WINCOL(curwin) + curwin->w_wcol);
     }
 
     len = eap->line2;
@@ -8575,6 +8598,9 @@ ex_operators(eap)
 	beginline(BL_SOL | BL_FIX);
     }
 
+    if (VIsual_active)
+	end_visual_mode();
+
     switch (eap->cmdidx)
     {
 	case CMD_delete:
@@ -8666,7 +8692,7 @@ ex_copymove(eap)
 /*
  * Print the current line if flags were given to the Ex command.
  */
-    static void
+    void
 ex_may_print(eap)
     exarg_T	*eap;
 {
@@ -8711,7 +8737,7 @@ ex_join(eap)
 	}
 	++eap->line2;
     }
-    (void)do_join(eap->line2 - eap->line1 + 1, !eap->forceit, TRUE, TRUE);
+    (void)do_join(eap->line2 - eap->line1 + 1, !eap->forceit, TRUE, TRUE, TRUE);
     beginline(BL_WHITE | BL_FIX);
     ex_may_print(eap);
 }
@@ -8984,11 +9010,7 @@ ex_redraw(eap)
     RedrawingDisabled = 0;
     p_lz = FALSE;
     update_topline();
-    update_screen(eap->forceit ? CLEAR :
-#ifdef FEAT_VISUAL
-	    VIsual_active ? INVERTED :
-#endif
-	    0);
+    update_screen(eap->forceit ? CLEAR : VIsual_active ? INVERTED : 0);
 #ifdef FEAT_TITLE
     if (need_maketitle)
 	maketitle();
@@ -9023,11 +9045,7 @@ ex_redrawstatus(eap)
 	status_redraw_all();
     else
 	status_redraw_curbuf();
-    update_screen(
-# ifdef FEAT_VISUAL
-	    VIsual_active ? INVERTED :
-# endif
-	    0);
+    update_screen(VIsual_active ? INVERTED : 0);
     RedrawingDisabled = r;
     p_lz = p;
     out_flush();
@@ -10292,6 +10310,7 @@ makeopens(fd, dirnow)
     char_u	*sname;
     win_T	*edited_win = NULL;
     int		tabnr;
+    int		restore_stal = FALSE;
     win_T	*tab_firstwin;
     frame_T	*tab_topframe;
     int		cur_arg_idx = 0;
@@ -10374,7 +10393,7 @@ makeopens(fd, dirnow)
     }
 
     /* the global argument list */
-    if (ses_arglist(fd, "args", &global_alist.al_ga,
+    if (ses_arglist(fd, "argglobal", &global_alist.al_ga,
 			    !(ssop_flags & SSOP_CURDIR), &ssop_flags) == FAIL)
 	return FAIL;
 
@@ -10407,6 +10426,19 @@ makeopens(fd, dirnow)
 	}
     }
 #endif
+
+    /*
+     * When there are two or more tabpages and 'showtabline' is 1 the tabline
+     * will be displayed when creating the next tab.  That resizes the windows
+     * in the first tab, which may cause problems.  Set 'showtabline' to 2
+     * temporarily to avoid that.
+     */
+    if (p_stal == 1 && first_tabpage->tp_next != NULL)
+    {
+	if (put_line(fd, "set stal=2") == FAIL)
+	    return FAIL;
+	restore_stal = TRUE;
+    }
 
     /*
      * May repeat putting Windows for each tab, when "tabpages" is in
@@ -10558,6 +10590,8 @@ makeopens(fd, dirnow)
 		|| put_eol(fd) == FAIL)
 	    return FAIL;
     }
+    if (restore_stal && put_line(fd, "set stal=1") == FAIL)
+	return FAIL;
 
     /*
      * Wipe out an empty unnamed buffer we started in.
@@ -10956,9 +10990,9 @@ ses_arglist(fd, cmd, gap, fullname, flagp)
     char_u	*buf = NULL;
     char_u	*s;
 
-    if (gap->ga_len == 0)
-	return put_line(fd, "silent! argdel *");
-    if (fputs(cmd, fd) < 0)
+    if (fputs(cmd, fd) < 0 || put_eol(fd) == FAIL)
+	return FAIL;
+    if (put_line(fd, "silent! argdel *") == FAIL)
 	return FAIL;
     for (i = 0; i < gap->ga_len; ++i)
     {
@@ -10975,7 +11009,9 @@ ses_arglist(fd, cmd, gap, fullname, flagp)
 		    s = buf;
 		}
 	    }
-	    if (fputs(" ", fd) < 0 || ses_put_fname(fd, s, flagp) == FAIL)
+	    if (fputs("argadd ", fd) < 0
+		    || ses_put_fname(fd, s, flagp) == FAIL
+		    || put_eol(fd) == FAIL)
 	    {
 		vim_free(buf);
 		return FAIL;
@@ -10983,7 +11019,7 @@ ses_arglist(fd, cmd, gap, fullname, flagp)
 	    vim_free(buf);
 	}
     }
-    return put_eol(fd);
+    return OK;
 }
 
 /*
@@ -11416,7 +11452,7 @@ ex_set(eap)
 ex_nohlsearch(eap)
     exarg_T	*eap UNUSED;
 {
-    no_hlsearch = TRUE;
+    SET_NO_HLSEARCH(TRUE);
     redraw_all_later(SOME_VALID);
 }
 
@@ -11480,7 +11516,7 @@ ex_match(eap)
 
 	    c = *end;
 	    *end = NUL;
-	    match_add(curwin, g, p + 1, 10, id);
+	    match_add(curwin, g, p + 1, 10, id, NULL);
 	    vim_free(g);
 	    *end = c;
 	}
